@@ -32,24 +32,20 @@ import org.hl7.fhir.r4.model.MessageHeader
 import org.hl7.fhir.r4.model.ResourceType
 import org.hl7.fhir.r4.model.StringType
 import org.hl7.fhir.r4.model.UriType
-import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
+import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
 import org.hl7.fhir.r4.model.Patient
+import org.mitre.healthmanager.dataMgr.ensureUsername
 import org.springframework.beans.factory.annotation.Autowired
 
 
 @Autowired
 var appProperties: AppProperties? = null
 
-@Autowired
-var myDaoRegistry: DaoRegistry? = null
-
-
-
 open class ProcessMessage : FhirSystemDaoR4() {
 
     override fun processMessage(theRequestDetails: RequestDetails, theMessage: IBaseBundle?): IBaseBundle {
 
-        val fhirContext : FhirContext= myDaoRegistry?.systemDao?.context
+        val fhirContext : FhirContext = myDaoRegistry?.systemDao?.context
             ?: throw InternalErrorException("no fhircontext")
 
         // Validation and initial processing
@@ -60,44 +56,13 @@ open class ProcessMessage : FhirSystemDaoR4() {
         // 4. header must specify the pdr event
         // 5. username extension must be present
         val username = getUsernameFromHeader(theHeader)
-
-        // check if username exists already. If not, create skeleton record
-        val patientSearchClient: IGenericClient = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
-        val patientResultsBundle = patientSearchClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", username))
-            .returnBundle(Bundle::class.java)
-            .execute()
-        val patientInternalId = when (patientResultsBundle.entry.size) {
-            0 -> {
-                val patientSkeleton = Patient()
-                patientSkeleton.addIdentifier()
-                    .setSystem("urn:mitre:healthmanager:account:username")
-                    .setValue(username)
-                val createResults = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
-                    .create()
-                    .resource(patientSkeleton)
-                    .prettyPrint()
-                    .encodedJson()
-                    .execute()
-                createResults.resource.idElement.idPart
-            }
-            1 -> {
-                patientResultsBundle.entry[0].resource.idElement.idPart
-            }
-            else -> {
-                throw InternalErrorException("multiple patient instances with username '$username'")
-            }
-        }
-
+        ensureUsername(username, fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase))
         // store the bundle as a bundle
         val results = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
             .create()
             .resource(theMessage)
             .prettyPrint()
             .encodedJson()
-            .withAdditionalHeader("Referer", theRequestDetails.fhirServerBase)
             .execute()
 
         // store individual entries
@@ -157,9 +122,6 @@ fun getUsernameFromHeader (header : MessageHeader) : String {
             if (headerEvent.valueAsString != "urn:mitre:healthmanager:pdr") {
                 throw UnprocessableEntityException("only pdr event supported")
             }
-            else {
-                println("just checking")
-            }
         }
         else -> {
             throw UnprocessableEntityException("only pdr event supported")
@@ -181,5 +143,6 @@ fun getUsernameFromHeader (header : MessageHeader) : String {
     else {
         throw UnprocessableEntityException("no username found in pdr message header")
     }
+
 
 }

@@ -1,3 +1,18 @@
+/*
+Copyright 2022 The MITRE Corporation
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+ */
 package org.mitre.healthmanager.sphr
 
 import ca.uhn.fhir.context.FhirContext
@@ -5,7 +20,6 @@ import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
 import org.apache.commons.io.IOUtils
-import org.awaitility.Awaitility
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.junit.jupiter.api.Assertions
@@ -18,7 +32,6 @@ import org.springframework.core.io.DefaultResourceLoader
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
-import java.util.concurrent.TimeUnit
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -55,7 +68,7 @@ class ProcessMessageTests {
 
         // Submit the bundle
         val messageBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
-            Bundle::class.java, stringFromResource("healthmanager/processmessage/BundleMessage_valid.json")
+            Bundle::class.java, stringFromResource("healthmanager/sphr/ProcessMessageTests/BundleMessage_valid.json")
         )
         val response : Bundle = testClient
             .operation()
