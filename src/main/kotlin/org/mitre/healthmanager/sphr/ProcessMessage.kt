@@ -18,6 +18,7 @@ package org.mitre.healthmanager.sphr
 
 import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.dao.r4.FhirSystemDaoR4
 import ca.uhn.fhir.jpa.starter.AppProperties
 import ca.uhn.fhir.rest.api.server.RequestDetails
@@ -28,31 +29,18 @@ import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.springframework.beans.factory.annotation.Autowired
 import java.util.*
+import org.mitre.healthmanager.dataMgr.ensureUsername
 
 
 @Autowired
 var appProperties: AppProperties? = null
 
-@Autowired
-var myDaoRegistry: DaoRegistry? = null
-
-
-
 open class ProcessMessage : FhirSystemDaoR4() {
 
     override fun processMessage(theRequestDetails: RequestDetails, theMessage: IBaseBundle?): IBaseBundle {
 
-        val fhirContext : FhirContext= myDaoRegistry?.systemDao?.context
+        val fhirContext : FhirContext = myDaoRegistry?.systemDao?.context
             ?: throw InternalErrorException("no fhircontext")
-
-        // A new bundle instance will be created from the contents of theMessage
-        val messageBundle = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
-            .create()
-            .resource(theMessage)
-            .prettyPrint()
-            .encodedJson()
-            .withAdditionalHeader("Referer", theRequestDetails.fhirServerBase)
-            .execute()
 
         // Validation and initial processing
         // 1. must be a bundle with type 'message'
@@ -62,41 +50,14 @@ open class ProcessMessage : FhirSystemDaoR4() {
         // 4. header must specify the pdr event
         // 5. username extension must be present
         val username = getUsernameFromHeader(theHeader)
-
-        // Check for the existence of an account with the username specified in the MessageHeader
-        // 1. If one does exist, note the resource id, which will be used later
-        // 2. If one does not exist, find the unique Patient instance in the message bundle (error if none or multiple)
-        // and use it to create a new patient instance (make sure the username is present in the identifier list with system
-        // "urn:mitre:healthmanager:account:username"). Record the resource id for use later
-        // check if username exists already. If not, create skeleton record
-        val patientSearchClient: IGenericClient = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
-        val patientResultsBundle = patientSearchClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", username))
-            .returnBundle(Bundle::class.java)
+        ensureUsername(username, fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase))
+        // store the bundle as a bundle
+        val results = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
+            .create()
+            .resource(theMessage)
+            .prettyPrint()
+            .encodedJson()
             .execute()
-        val patientInternalId = when (patientResultsBundle.entry.size) {
-            0 -> {
-                val patientSkeleton = Patient()
-                patientSkeleton.addIdentifier()
-                    .setSystem("urn:mitre:healthmanager:account:username")
-                    .setValue(username)
-                val createResults = fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase)
-                    .create()
-                    .resource(patientSkeleton)
-                    .prettyPrint()
-                    .encodedJson()
-                    .execute()
-                createResults.resource.idElement.idPart
-            }
-            1 -> {
-                patientResultsBundle.entry[0].resource.idElement.idPart
-            }
-            else -> {
-                throw InternalErrorException("multiple patient instances with username '$username'")
-            }
-        }
 
         // Store the MessageHeader (theHeader) as its own instance with the following changes
         // The focus list of the message header will be updated to contain only references to
@@ -110,8 +71,6 @@ open class ProcessMessage : FhirSystemDaoR4() {
             .prettyPrint()
             .encodedJson()
             .execute()
-
-
 
         // store individual entries
         // take the theMessage (which is passed in) and make the following changes/checks:
@@ -234,9 +193,6 @@ fun getUsernameFromHeader (header : MessageHeader) : String {
         is UriType -> {
             if (headerEvent.valueAsString != "urn:mitre:healthmanager:pdr") {
                 throw UnprocessableEntityException("only pdr event supported")
-            }
-            else {
-                println("just checking")
             }
         }
         else -> {
