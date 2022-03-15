@@ -20,7 +20,6 @@ import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
 import org.apache.commons.io.IOUtils
-import org.awaitility.Awaitility
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.junit.jupiter.api.*
