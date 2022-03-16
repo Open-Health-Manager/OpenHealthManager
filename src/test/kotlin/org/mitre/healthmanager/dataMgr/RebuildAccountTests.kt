@@ -63,7 +63,7 @@ class RebuildAccountTests {
     @Test
     @Order(0)
     fun testPatientOnlyRebuild() {
-        val methodName = "testSuccessfulBundleStorage"
+        val methodName = "testPatientOnlyRebuild"
         ourLog.info("Entering $methodName()...")
         val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
 

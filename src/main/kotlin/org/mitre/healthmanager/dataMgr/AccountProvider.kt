@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
  */
-package org.mitre.healthmanager.dataMgr.org.mitre.healthmanager.dataMgr
+package org.mitre.healthmanager.dataMgr
 
 import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.parser.IParser

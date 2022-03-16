@@ -176,10 +176,13 @@ fun updateAccountToSkeletonPatientInstance(username: String, patientId : String?
         .execute()
 }
 
-fun ensureUsername(username : String, client: IGenericClient) {
+fun ensureUsername(username : String, client: IGenericClient) : String {
 
     val patientId = getPatientIdForUsername(username, client)
-    if (patientId == null) {
+    return if (patientId == null) {
         createAccountSkeletonPatientInstance(username, client)
+    }
+    else {
+        patientId
     }
 }
