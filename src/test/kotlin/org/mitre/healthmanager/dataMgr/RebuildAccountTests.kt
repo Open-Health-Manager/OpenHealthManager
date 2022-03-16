@@ -19,11 +19,9 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
+import org.awaitility.Awaitility
 import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.r4.model.Bundle
-import org.hl7.fhir.r4.model.Parameters
-import org.hl7.fhir.r4.model.Patient
-import org.hl7.fhir.r4.model.StringType
+import org.hl7.fhir.r4.model.*
 import org.junit.Assert
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Order
@@ -33,6 +31,7 @@ import org.mitre.healthmanager.sphr.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
+import java.util.concurrent.TimeUnit
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -61,7 +60,6 @@ class RebuildAccountTests {
     private var port = 0
 
     @Test
-    @Order(0)
     fun testPatientOnlyRebuild() {
         val methodName = "testPatientOnlyRebuild"
         ourLog.info("Entering $methodName()...")
@@ -74,15 +72,11 @@ class RebuildAccountTests {
         )
         testClient.transaction().withBundle(transactionBundle).execute()
 
-        // verify present - first and last name
-        val patientResultsBundle = testClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "naccount"))
-            .returnBundle(Bundle::class.java)
-            .execute()
-        Assertions.assertEquals(1, patientResultsBundle.entry.size)
-        val patId = patientResultsBundle.entry[0].resource.idElement.idPart
+        ourLog.info("**** get patient id for username ****")
+        // give indexing a few more seconds
+        val patId = searchForPatientByUsername("naccount", testClient, 120)
+
+        Assertions.assertNotNull(patId)
         val patResource = testClient.read().resource(Patient::class.java).withId(patId).encodedJson().execute()
         Assertions.assertEquals("Account", patResource.nameFirstRep.family)
         Assertions.assertEquals("New", patResource.nameFirstRep.givenAsSingleString)
@@ -103,4 +97,171 @@ class RebuildAccountTests {
         val patResourceRebuilt = testClient.read().resource(Patient::class.java).withId(patId).encodedJson().execute()
         Assertions.assertEquals(0, patResourceRebuilt.name.size)
     }
+
+    @Test
+    fun testOnePDRRebuild() {
+        val methodName = "testOnePDRRebuild"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+
+        // file test data
+        // has username identifier and first / last name
+        val messageBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
+            Bundle::class.java, stringFromResource("healthmanager/dataMgr/RebuildAccountTests/SinglePDRRebuild.json")
+        )
+        val response : Bundle = testClient
+            .operation()
+            .processMessage()
+            .setMessageBundle<Bundle>(messageBundle)
+            .synchronous(Bundle::class.java)
+            .execute()
+
+        ourLog.info("**** get patient id for username ****")
+        // give indexing a few more seconds
+        val patientId = searchForPatientByUsername("rebuildonepdr", testClient, 120)
+
+        Assertions.assertNotNull(patientId)
+        val patResource = testClient.read().resource(Patient::class.java).withId(patientId).encodedJson().execute()
+        Assertions.assertEquals("Rebuild", patResource.nameFirstRep.family)
+        Assertions.assertEquals("OnePDR", patResource.nameFirstRep.givenAsSingleString)
+
+        // check other resources
+        var originalIdPatient : String? = null
+        var originalIdMessageHeader : String? = null
+        var originalIdBundle : String? = null
+        var originalIdEncounter : String? = null
+        var originalIdProcedure : String? = null
+        val patientEverythingResultOriginal : Parameters = testClient
+            .operation()
+            .onInstance(IdType("Patient", patientId))
+            .named("\$everything")
+            .withNoParameters(Parameters::class.java)
+            .useHttpGet()
+            .execute()
+        Assertions.assertEquals(1, patientEverythingResultOriginal.parameter.size)
+        when (val everythingBundle = patientEverythingResultOriginal.parameter[0].resource) {
+            is Bundle -> {
+                // 3 entries stored from the bundle
+                Assertions.assertEquals(5, everythingBundle.entry.size)
+                everythingBundle.entry.forEach { entry ->
+                    when (val resource = entry.resource) {
+                        is Patient -> { originalIdPatient = resource.idElement.idPart}
+                        is MessageHeader -> { originalIdMessageHeader = resource.idElement.idPart}
+                        is Bundle -> { originalIdBundle = resource.idElement.idPart}
+                        is Encounter -> { originalIdEncounter = resource.idElement.idPart}
+                        is Procedure -> { originalIdProcedure = resource.idElement.idPart}
+                        else -> {
+                            Assertions.fail("unexpected resource type ${entry.resource.resourceType}")
+                        }
+                    }
+                }
+                Assertions.assertNotNull(originalIdPatient)
+                Assertions.assertNotNull(originalIdMessageHeader)
+                Assertions.assertNotNull(originalIdBundle)
+                Assertions.assertNotNull(originalIdEncounter)
+                Assertions.assertNotNull(originalIdProcedure)
+            }
+            else -> {
+                Assertions.fail("\$everything didn't return a bundle")
+            }
+        }
+
+        ourLog.info("**** start rebuild ****")
+        // trigger rebuild (operation)
+        // Create the input parameters to pass to the server
+        val inParams = Parameters()
+        inParams.addParameter().setName("username").value = StringType("rebuildonepdr")
+
+        testClient
+            .operation()
+            .onServer()
+            .named("\$rebuild-account")
+            .withParameters(inParams)
+            .execute()
+
+        // check other resources
+        val patientEverythingResultPostRebuilt : Parameters = testClient
+            .operation()
+            .onInstance(IdType("Patient", patientId))
+            .named("\$everything")
+            .withNoParameters(Parameters::class.java)
+            .useHttpGet()
+            .execute()
+        Assertions.assertEquals(1, patientEverythingResultPostRebuilt.parameter.size)
+        when (val everythingBundle = patientEverythingResultPostRebuilt.parameter[0].resource) {
+            is Bundle -> {
+                // 3 entries stored from the bundle
+                Assertions.assertEquals(5, everythingBundle.entry.size)
+                var checkedPatient = false
+                var checkedMessageHeader = false
+                var checkedBundle = false
+                var checkedEncounter = false
+                var checkedProcedure = false
+                everythingBundle.entry.forEach { entry ->
+                    when (val resource = entry.resource) {
+                        is Patient -> {
+                            Assertions.assertEquals(originalIdPatient, resource.idElement.idPart)
+                            checkedPatient = true
+                        }
+                        is MessageHeader -> {
+                            Assertions.assertEquals(originalIdMessageHeader, resource.idElement.idPart)
+                            checkedMessageHeader = true
+                        }
+                        is Bundle -> {
+                            Assertions.assertEquals(originalIdBundle, resource.idElement.idPart)
+                            checkedBundle = true
+                        }
+                        is Encounter -> {
+                            Assertions.assertNotEquals(originalIdEncounter, resource.idElement.idPart)
+                            checkedEncounter = true
+                        }
+                        is Procedure -> {
+                            Assertions.assertNotEquals(originalIdProcedure, resource.idElement.idPart)
+                            checkedProcedure = true
+                        }
+                        else -> {
+                            Assertions.fail("unexpected resource type ${entry.resource.resourceType}")
+                        }
+                    }
+                }
+                Assertions.assertTrue(checkedPatient && checkedMessageHeader && checkedBundle && checkedEncounter && checkedProcedure)
+            }
+            else -> {
+                Assertions.fail("\$everything didn't return a bundle")
+            }
+        }
+    }
+}
+
+fun searchForPatientByUsername (username: String, client: IGenericClient, waitSeconds : Long) : String? {
+    var results : Bundle? = null
+    Awaitility.await().atMost(waitSeconds, TimeUnit.SECONDS).until {
+        Thread.sleep(5000) // execute below function every 5 seconds
+        results = client
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", username))
+            .returnBundle(Bundle::class.java)
+            .execute()
+        results?.entry?.size!! > 0
+    }
+    if (results is Bundle) {
+        if ((results as Bundle).entry.size == 1) {
+            when (val resource = (results as Bundle).entry[0].resource) {
+                is Patient -> {
+                    return resource.idElement.idPart
+                }
+                else -> {
+                    Assertions.fail("search did not return a patient")
+                }
+            }
+        }
+        else {
+            Assertions.fail("multiple patients for username $username")
+        }
+    }
+    else {
+        Assertions.fail("no results for username $username")
+    }
+    return null
 }

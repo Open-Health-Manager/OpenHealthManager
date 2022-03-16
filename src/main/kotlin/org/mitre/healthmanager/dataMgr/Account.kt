@@ -22,6 +22,7 @@ import ca.uhn.fhir.jpa.starter.AppProperties
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
 import org.hl7.fhir.instance.model.api.IBaseBundle
+import org.hl7.fhir.instance.model.api.IIdType
 import org.hl7.fhir.r4.model.*
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent
 import org.springframework.beans.factory.annotation.Autowired
@@ -41,11 +42,20 @@ fun rebuildAccount(username : String, client: IGenericClient) {
     if (deleteTransactionBundle.entry.size > 0) {
         client.transaction().withBundle(deleteTransactionBundle).execute()
     }
-    // 3. revert the patient instance back to the skeleton record
+    // 4. revert the patient instance back to the skeleton record
     updateAccountToSkeletonPatientInstance(username, accountPatientId, client)
-    // 4. reprocess all existing PDRs
-    // TODO
+    // 5. reprocess all existing PDRs
+    val bundleIdList = getPDRBundleIdListForPatient(accountPatientId, client)
 
+    bundleIdList.forEach { bundleId ->
+        val theMessage = client
+            .read()
+            .resource(Bundle::class.java)
+            .withId(bundleId)
+            .execute()
+
+        storeIndividualPDREntries(theMessage, accountPatientId, client, null)
+    }
 }
 
 fun getEverythingForAccount(username: String, patientId: String?, client: IGenericClient) : Bundle {
@@ -185,4 +195,34 @@ fun ensureUsername(username : String, client: IGenericClient) : String {
     else {
         patientId
     }
+}
+
+fun getPDRBundleIdListForPatient(patientId: String, client: IGenericClient) : List<String> {
+    val messageHeaderResults = client
+        .search<IBaseBundle>()
+        .forResource(MessageHeader::class.java)
+        .where(MessageHeader.FOCUS.hasId(IdType("Patient", patientId)))
+        .returnBundle(Bundle::class.java)
+        .execute()
+
+    val bundleIdList = mutableListOf<String>()
+    messageHeaderResults.entry.forEach { entry ->
+        when (val header = entry.resource) {
+            is MessageHeader -> {
+                header.focus.forEach { reference ->
+                    when (reference.referenceElement.resourceType) {
+                        "Bundle" -> {
+                            bundleIdList.add(0, reference.referenceElement.idPart)
+                        }
+                    }
+                }
+            }
+            else -> {
+                // do nothing
+            }
+        }
+    }
+
+    return bundleIdList
+
 }
