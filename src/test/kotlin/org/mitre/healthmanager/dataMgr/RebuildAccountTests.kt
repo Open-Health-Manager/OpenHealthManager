@@ -26,6 +26,7 @@ import org.junit.Assert
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
+import org.mitre.healthmanager.searchForPatientByUsername
 import org.mitre.healthmanager.sphr.ProcessMessageTests
 import org.mitre.healthmanager.sphr.stringFromResource
 import org.slf4j.LoggerFactory
@@ -233,35 +234,3 @@ class RebuildAccountTests {
     }
 }
 
-fun searchForPatientByUsername (username: String, client: IGenericClient, waitSeconds : Long) : String? {
-    var results : Bundle? = null
-    Awaitility.await().atMost(waitSeconds, TimeUnit.SECONDS).until {
-        Thread.sleep(5000) // execute below function every 5 seconds
-        results = client
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", username))
-            .returnBundle(Bundle::class.java)
-            .execute()
-        results?.entry?.size!! > 0
-    }
-    if (results is Bundle) {
-        if ((results as Bundle).entry.size == 1) {
-            when (val resource = (results as Bundle).entry[0].resource) {
-                is Patient -> {
-                    return resource.idElement.idPart
-                }
-                else -> {
-                    Assertions.fail("search did not return a patient")
-                }
-            }
-        }
-        else {
-            Assertions.fail("multiple patients for username $username")
-        }
-    }
-    else {
-        Assertions.fail("no results for username $username")
-    }
-    return null
-}

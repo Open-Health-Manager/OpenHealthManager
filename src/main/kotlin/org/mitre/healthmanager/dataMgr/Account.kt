@@ -58,6 +58,23 @@ fun rebuildAccount(username : String, client: IGenericClient) {
     }
 }
 
+fun deleteAccount(username : String, client: IGenericClient) {
+
+    /// use username to find the patient id
+    val accountPatientId = getPatientIdForUsername(username, client)
+        ?: throw InternalErrorException("Delete failed: no patient record for '$username'")
+
+    // Simple initial implementation
+    // 1. use $everything to get resources associated with the account
+    val everythingBundle = getEverythingForAccount(username, accountPatientId, client)
+    // 2. create a transaction that deletes them all except for the patient itself
+    val deleteTransactionBundle = getEverythingDeleteTransactionBundle(everythingBundle, true)
+    // 3. submit the bundle as a transaction
+    if (deleteTransactionBundle.entry.size > 0) {
+        client.transaction().withBundle(deleteTransactionBundle).execute()
+    }
+}
+
 fun getEverythingForAccount(username: String, patientId: String?, client: IGenericClient) : Bundle {
     val updateId = when {
         (patientId == null) -> {

@@ -19,6 +19,7 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.parser.IParser
 import ca.uhn.fhir.rest.annotation.Operation
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
+import org.hl7.fhir.r4.model.OperationOutcome
 import org.hl7.fhir.r4.model.Parameters
 import org.hl7.fhir.r4.model.StringType
 import org.mitre.healthmanager.dataMgr.rebuildAccount
@@ -52,12 +53,54 @@ class AccountProvider{
             }
         }
 
-
         val serverAddress = theServletRequest.requestURL.toString().substringBefore("\$")
         rebuildAccount(username, ctx.newRestfulGenericClient(serverAddress))
 
+        theServletResponse.contentType = "application/fhir+json"
+        theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))
+        theServletResponse.writer.close()
+    }
 
+    @Operation(name = "\$delete-account", manualResponse = true, manualRequest = true)
+    @Throws(
+        IOException::class
+    )
+    fun deleteAccountOperation(theServletRequest: HttpServletRequest, theServletResponse: HttpServletResponse) {
+
+        val reader = theServletRequest.reader
+        val data: String = reader.readText()
+        reader.close()
+
+        val ctx = FhirContext.forR4()
+        val parser: IParser = ctx.newJsonParser()
+        val parsedData: Parameters = parser.parseResource(Parameters::class.java, data)
+
+        val username = when (val usernameRaw = parsedData.parameter[0].value) {
+            is StringType -> {
+                usernameRaw.value
+            }
+            else -> {
+                throw UnprocessableEntityException("\$delete-account parameter must be a string")
+            }
+        }
+
+        val serverAddress = theServletRequest.requestURL.toString().substringBefore("\$")
+        deleteAccount(username, ctx.newRestfulGenericClient(serverAddress))
+
+        theServletResponse.contentType = "application/fhir+json"
+        theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))
+        theServletResponse.writer.close()
     }
 
 
+}
+
+fun getOkOutcome() : OperationOutcome {
+    val outcomeOk = OperationOutcome()
+    val issueOk = OperationOutcome.OperationOutcomeIssueComponent()
+    issueOk.code = OperationOutcome.IssueType.INFORMATIONAL
+    issueOk.severity = OperationOutcome.IssueSeverity.INFORMATION
+    issueOk.details.text = "All OK"
+    outcomeOk.issue.add(issueOk)
+    return outcomeOk
 }
