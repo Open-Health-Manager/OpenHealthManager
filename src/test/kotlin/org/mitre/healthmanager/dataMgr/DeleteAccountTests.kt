@@ -13,18 +13,26 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
  */
-package org.mitre.healthmanager.sphr
+package org.mitre.healthmanager.dataMgr
 
 import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
+import org.awaitility.Awaitility
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
-import org.junit.jupiter.api.*
+import org.junit.Assert
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Order
+import org.junit.jupiter.api.Test
+import org.mitre.healthmanager.searchForPatientByUsername
+import org.mitre.healthmanager.sphr.ProcessMessageTests
+import org.mitre.healthmanager.sphr.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
+import java.util.concurrent.TimeUnit
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -40,7 +48,7 @@ import org.springframework.boot.web.server.LocalServerPort
         "hapi.fhir.fhir_version=r4",
     ]
 )
-class ProcessMessageNoFullUrlTests {
+class DeleteAccountTests {
 
     private val ourLog = LoggerFactory.getLogger(ProcessMessageTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
@@ -53,14 +61,15 @@ class ProcessMessageNoFullUrlTests {
     private var port = 0
 
     @Test
-    fun testNoFullUrlBundleStorage() {
-        val methodName = "testNoFullUrlBundleStorage"
+    fun testOnePDRDelete() {
+        val methodName = "testOnePDRDelete"
         ourLog.info("Entering $methodName()...")
-        val testClient : IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
 
-        // Submit the bundle
-        val messageBundle: Bundle = ourCtx.newJsonParser().parseResource(
-            Bundle::class.java, stringFromResource("healthmanager/sphr/ProcessMessageTests/BundleMessage_noFullUrls.json")
+        // file test data
+        // has username identifier and first / last name
+        val messageBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
+            Bundle::class.java, stringFromResource("healthmanager/dataMgr/RebuildAccountTests/SinglePDRRebuild.json")
         )
         val response : Bundle = testClient
             .operation()
@@ -69,55 +78,53 @@ class ProcessMessageNoFullUrlTests {
             .synchronous(Bundle::class.java)
             .execute()
 
-        Assertions.assertEquals(1, response.entry.size)
-        when (val firstResource = response.entry[0].resource) {
-            is MessageHeader -> {
-                Assertions.assertEquals(firstResource.response.code, MessageHeader.ResponseType.OK)
-            }
-            else -> {
-                Assertions.fail("response doesn't have a message header")
-            }
-        }
+        ourLog.info("**** get patient id for username ****")
+        // give indexing a few more seconds
+        val patientId: String? = searchForPatientByUsername("rebuildonepdr", testClient, 120)
 
-        Thread.sleep(1000) // give indexing a second to occur
-
-        // find the patient id
-        val patientResultsBundle : Bundle = testClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            //.where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "a394Kutch271"))
-            .returnBundle(Bundle::class.java)
-            .execute()
-
-        Assertions.assertEquals(1, patientResultsBundle.entry.size)
-        val patientId = when (val firstResource = patientResultsBundle.entry[0].resource) {
-            is Patient -> {
-                val username = firstResource.identifier.filter { id -> id.system == "urn:mitre:healthmanager:account:username" }
-                Assertions.assertEquals(1, username.size)
-                Assertions.assertEquals("a394Kutch271", username[0].value)
-                firstResource.idElement.idPart
-            }
-            else -> {
-                Assertions.fail("response didn't return a patient")
-            }
-        }
+        Assertions.assertNotNull(patientId)
+        val patResource = testClient.read().resource(Patient::class.java).withId(patientId).encodedJson().execute()
+        Assertions.assertEquals("Rebuild", patResource.nameFirstRep.family)
+        Assertions.assertEquals("OnePDR", patResource.nameFirstRep.givenAsSingleString)
 
         // check other resources
-        val patientEverythingResult : Parameters = testClient
+        val patientEverythingResultOriginal : Parameters = testClient
             .operation()
             .onInstance(IdType("Patient", patientId))
             .named("\$everything")
             .withNoParameters(Parameters::class.java)
             .useHttpGet()
             .execute()
-        Assertions.assertEquals(1, patientEverythingResult.parameter.size)
-        when (val everythingBundle = patientEverythingResult.parameter[0].resource) {
+        Assertions.assertEquals(1, patientEverythingResultOriginal.parameter.size)
+        when (val everythingBundle = patientEverythingResultOriginal.parameter[0].resource) {
             is Bundle -> {
+                // 3 entries stored from the bundle
                 Assertions.assertEquals(5, everythingBundle.entry.size)
             }
             else -> {
                 Assertions.fail("\$everything didn't return a bundle")
             }
         }
+
+        ourLog.info("**** start delete ****")
+        // trigger rebuild (operation)
+        // Create the input parameters to pass to the server
+        val inParams = Parameters()
+        inParams.addParameter().setName("username").value = StringType("rebuildonepdr")
+
+        testClient
+            .operation()
+            .onServer()
+            .named("\$delete-account")
+            .withParameters(inParams)
+            .execute()
+
+        val postDeletePatientSearch = testClient
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.RES_ID.exactly().code(patientId))
+            .returnBundle(Bundle::class.java)
+            .execute()
+        Assertions.assertEquals(0, postDeletePatientSearch.entry.size)
     }
 }
