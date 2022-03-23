@@ -32,6 +32,7 @@ fun fixAppleHealthKitBundle(theMessage : Bundle, internalPatientId : String) {
                 resource.subject.reference = "Patient/$internalPatientId"
                 // remove encounter link
                 resource.encounter = null
+                resource.performer.clear()
             }
             is Condition -> {
                 // replace patient reference with internal reference
@@ -42,6 +43,13 @@ fun fixAppleHealthKitBundle(theMessage : Bundle, internalPatientId : String) {
             is AllergyIntolerance -> {
                 // replace patient reference with internal reference
                 resource.patient.reference = "Patient/$internalPatientId"
+            }
+            is Immunization -> {
+                // replace patient reference with internal reference
+                resource.patient.reference = "Patient/$internalPatientId"
+                // remove encounter link
+                resource.encounter = null
+                resource.performer.clear()
             }
             else -> {
                 // do nothing
