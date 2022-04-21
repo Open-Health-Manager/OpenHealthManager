@@ -54,7 +54,7 @@ fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patie
     val bundleIdList = getPDRBundleIdListForPatient(accountPatientId, messageHeaderDao)
     bundleIdList.forEach { bundleId ->
         val theMessage = bundleDao.read(IdDt("Bundle/$bundleId"))
-        storeIndividualPDREntries(theMessage, accountPatientId, txProcessor, null)
+        storeIndividualPDREntries(theMessage, accountPatientId, txProcessor, null, username)
     }
 }
 

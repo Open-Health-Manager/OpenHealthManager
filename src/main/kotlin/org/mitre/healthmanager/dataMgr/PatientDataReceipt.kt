@@ -52,7 +52,7 @@ fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirRe
     // 3. the non-MessageHeader contents of the Bundle individually
     val bundleInternalId = storePDRAsRawBundle(theMessage, bundleDao)
     val messageHeaderInternalId = storePDRMessageHeader(header, patientInternalId, bundleInternalId, messageHeaderDao)
-    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header)
+    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header, username)
 
 }
 
@@ -75,7 +75,7 @@ fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String,
     return outcome.resource.idElement.idPart
 }
 
-fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?) {
+fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?, username : String) {
     val headerToCheck = theHeader ?: getMessageHeader(theMessage)
 
     if (headerToCheck.source.endpoint == "urn:apple:health-kit") {
@@ -117,11 +117,12 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myT
         }
 
         // update / add request details
-        when (entry.resource.resourceType) {
-            ResourceType.MessageHeader -> {
+        val theResource = entry.resource
+        when (theResource) {
+            is MessageHeader -> {
                 indexToRemove = index
             }
-            ResourceType.Patient -> {
+            is Patient -> {
                 if (patientFound) {
                     throw UnprocessableEntityException("PDR cannot have more than 1 patient instance")
                 }
@@ -131,7 +132,12 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myT
 
                 // update this patient record, linkages will be updated by bundle processing
                 entry.request.method = Bundle.HTTPVerb.PUT
-                entry.request.url = "Patient/" + patientInternalId
+                entry.request.url = "Patient/$patientInternalId"
+
+                getUsernameFromPatient(theResource) ?: run {
+                    addUsernameToPatient(theResource, username)
+                }
+
             }
             else -> {
                 // create for all else

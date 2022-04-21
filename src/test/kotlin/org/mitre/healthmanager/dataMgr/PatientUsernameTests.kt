@@ -21,10 +21,13 @@ import ca.uhn.fhir.rest.api.MethodOutcome
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
+import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
+import org.mitre.healthmanager.searchForPatientByUsername
 import org.mitre.healthmanager.sphr.ProcessMessageTests
+import org.mitre.healthmanager.sphr.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
@@ -77,6 +80,47 @@ class PatientUsernameTests {
             null
         }
         Assertions.assertNull(outcome)
+    }
+
+    @Test
+    fun testCreateWithoutUsernameOnPatientRecordPDR() {
+        val methodName = "testCreateWithoutUsernameOnPatientRecordPDR"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+
+        // make sure patient doesn't exist
+        val results = testClient
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "noUsernameOnPt"))
+            .returnBundle(Bundle::class.java)
+            .execute()
+        Assertions.assertEquals(0, results?.entry?.size!!)
+
+        // file test data
+        // has username identifier and first / last name
+        val pdrBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
+            Bundle::class.java, stringFromResource("healthmanager/dataMgr/PatientUsernameTests/PatientRecordNoUsernamePDR.json")
+        )
+        val response : Bundle = testClient
+            .operation()
+            .processMessage()
+            .setMessageBundle<Bundle>(pdrBundle)
+            .synchronous(Bundle::class.java)
+            .execute()
+
+        // make sure patient does exist now
+        val patientCreatedId: String? = searchForPatientByUsername("noUsernameOnPt", testClient, 120)
+        Assertions.assertNotNull(patientCreatedId)
+
+        // read
+        val patient: Patient = testClient.read()
+            .resource(Patient::class.java)
+            .withId(patientCreatedId)
+            .execute()
+
+        Assertions.assertEquals("urn:mitre:healthmanager:account:username", patient.identifierFirstRep.system)
+        Assertions.assertEquals("noUsernameOnPt", patient.identifierFirstRep.value)
     }
 
     @Test

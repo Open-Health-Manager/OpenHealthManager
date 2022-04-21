@@ -85,7 +85,7 @@ class CreateAccountTests {
             .withParameters(inParams)
             .execute()
 
-        // make sure patient doesn't exist
+        // make sure patient does exist
         val patientCreatedId: String? = searchForPatientByUsername("createNew", testClient, 120)
         Assertions.assertNotNull(patientCreatedId)
 
