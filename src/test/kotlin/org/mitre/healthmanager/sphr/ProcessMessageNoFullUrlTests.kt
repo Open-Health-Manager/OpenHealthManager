@@ -42,7 +42,7 @@ import org.springframework.boot.web.server.LocalServerPort
 )
 class ProcessMessageNoFullUrlTests {
 
-    private val ourLog = LoggerFactory.getLogger(ProcessMessageTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(ProcessMessageNoFullUrlTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER

@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit
 )
 class RebuildAccountTests {
 
-    private val ourLog = LoggerFactory.getLogger(ProcessMessageTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(RebuildAccountTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER

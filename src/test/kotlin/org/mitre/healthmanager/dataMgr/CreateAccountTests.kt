@@ -48,9 +48,9 @@ import java.util.concurrent.TimeUnit
         "hapi.fhir.fhir_version=r4",
     ]
 )
-class DeleteAccountTests {
+class CreateAccountTests {
 
-    private val ourLog = LoggerFactory.getLogger(DeleteAccountTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(CreateAccountTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER
@@ -61,70 +61,33 @@ class DeleteAccountTests {
     private var port = 0
 
     @Test
-    fun testOnePDRDelete() {
-        val methodName = "testOnePDRDelete"
+    fun testCreateSuccess() {
+        val methodName = "testCreateSuccess"
         ourLog.info("Entering $methodName()...")
         val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
 
-        // file test data
-        // has username identifier and first / last name
-        val messageBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
-            Bundle::class.java, stringFromResource("healthmanager/dataMgr/RebuildAccountTests/SinglePDRRebuild.json")
-        )
-        val response : Bundle = testClient
-            .operation()
-            .processMessage()
-            .setMessageBundle<Bundle>(messageBundle)
-            .synchronous(Bundle::class.java)
+        // make sure patient doesn't exist
+        val results = testClient
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "createNew"))
+            .returnBundle(Bundle::class.java)
             .execute()
+        Assertions.assertEquals(0, results?.entry?.size!!)
 
-        ourLog.info("**** get patient id for username ****")
-        // give indexing a few more seconds
-        val patientId: String? = searchForPatientByUsername("rebuildonepdr", testClient, 120)
-
-        Assertions.assertNotNull(patientId)
-        val patResource = testClient.read().resource(Patient::class.java).withId(patientId).encodedJson().execute()
-        Assertions.assertEquals("Rebuild", patResource.nameFirstRep.family)
-        Assertions.assertEquals("OnePDR", patResource.nameFirstRep.givenAsSingleString)
-
-        // check other resources
-        val patientEverythingResultOriginal : Parameters = testClient
-            .operation()
-            .onInstance(IdType("Patient", patientId))
-            .named("\$everything")
-            .withNoParameters(Parameters::class.java)
-            .useHttpGet()
-            .execute()
-        Assertions.assertEquals(1, patientEverythingResultOriginal.parameter.size)
-        when (val everythingBundle = patientEverythingResultOriginal.parameter[0].resource) {
-            is Bundle -> {
-                // 3 entries stored from the bundle
-                Assertions.assertEquals(5, everythingBundle.entry.size)
-            }
-            else -> {
-                Assertions.fail("\$everything didn't return a bundle")
-            }
-        }
-
-        ourLog.info("**** start delete ****")
-        // trigger rebuild (operation)
-        // Create the input parameters to pass to the server
+        // trigger create
         val inParams = Parameters()
-        inParams.addParameter().setName("username").value = StringType("rebuildonepdr")
-
+        inParams.addParameter().setName("username").value = StringType("createNew")
         testClient
             .operation()
             .onServer()
-            .named("\$delete-account")
+            .named("\$create-account")
             .withParameters(inParams)
             .execute()
 
-        val postDeletePatientSearch = testClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            .where(Patient.RES_ID.exactly().code(patientId))
-            .returnBundle(Bundle::class.java)
-            .execute()
-        Assertions.assertEquals(0, postDeletePatientSearch.entry.size)
+        // make sure patient doesn't exist
+        val patientCreatedId: String? = searchForPatientByUsername("createNew", testClient, 120)
+        Assertions.assertNotNull(patientCreatedId)
+
     }
 }

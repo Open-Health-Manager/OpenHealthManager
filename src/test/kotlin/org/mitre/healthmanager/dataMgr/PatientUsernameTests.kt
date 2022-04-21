@@ -1,0 +1,181 @@
+/*
+Copyright 2022 The MITRE Corporation
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+ */
+package org.mitre.healthmanager.dataMgr
+
+import ca.uhn.fhir.context.FhirContext
+import ca.uhn.fhir.jpa.starter.Application
+import ca.uhn.fhir.rest.api.MethodOutcome
+import ca.uhn.fhir.rest.client.api.IGenericClient
+import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
+import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
+import org.hl7.fhir.r4.model.*
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Test
+import org.mitre.healthmanager.sphr.ProcessMessageTests
+import org.slf4j.LoggerFactory
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.web.server.LocalServerPort
+
+
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    classes = [Application::class],
+    properties = [
+        "spring.batch.job.enabled=false",
+        "spring.datasource.url=jdbc:h2:mem:dbr4",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=null",
+        "spring.datasource.driverClassName=org.h2.Driver",
+        "spring.jpa.properties.hibernate.dialect=ca.uhn.fhir.jpa.model.dialect.HapiFhirH2Dialect",
+        "hapi.fhir.enable_repository_validating_interceptor=true",
+        "hapi.fhir.fhir_version=r4",
+    ]
+)
+class PatientUsernameTests {
+
+    private val ourLog = LoggerFactory.getLogger(PatientUsernameTests::class.java)
+    private val ourCtx: FhirContext = FhirContext.forR4()
+    init {
+        ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER
+        ourCtx.restfulClientFactory.socketTimeout = 1200 * 1000
+    }
+
+    @LocalServerPort
+    private var port = 0
+
+    @Test
+    fun testCreateWithoutUsername() {
+        val methodName = "testCreateWithoutUsername"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+
+        val noUsernamePatient = Patient()
+        noUsernamePatient.addIdentifier().setSystem("urn:system").setValue("12345");
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John");
+
+        val outcome: MethodOutcome? = try {
+            testClient.create()
+                .resource(noUsernamePatient)
+                .prettyPrint()
+                .encodedJson()
+                .execute()
+        } catch (e: Exception) {
+            Assertions.assertTrue(e is InternalErrorException)
+            null
+        }
+        Assertions.assertNull(outcome)
+    }
+
+    @Test
+    fun testUpdateWithoutUsername() {
+        val methodName = "testUpdateWithoutUsername"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+
+
+        // create
+        val usernamePatient = Patient()
+        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testCreate");
+        usernamePatient.addName().setFamily("Smith").addGiven("John");
+
+        val outcome: MethodOutcome? = try {
+            testClient.create()
+                .resource(usernamePatient)
+                .prettyPrint()
+                .encodedJson()
+                .execute()
+        } catch (e: Exception) {
+            null
+        }
+        Assertions.assertNotNull(outcome)
+        val newId = outcome!!.resource.idElement.idPart
+
+        // update
+        val noUsernamePatient = Patient()
+        noUsernamePatient.id = "Patient/$newId"
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M");
+
+        val outcomePut: MethodOutcome? = try {
+            testClient.update()
+                .resource(noUsernamePatient)
+                .prettyPrint()
+                .encodedJson()
+                .execute()
+        } catch (e: Exception) {
+            null
+        }
+        Assertions.assertNotNull(outcomePut)
+
+        // read
+        val patient: Patient = testClient.read()
+            .resource(Patient::class.java)
+            .withId(newId)
+            .execute()
+
+        Assertions.assertEquals(2, patient.nameFirstRep.given.size)
+    }
+
+    @Test
+    fun testUpdateToDifferentUsername() {
+        val methodName = "testUpdateToDifferentUsername"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+
+
+        // create
+        val usernamePatient = Patient()
+        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdate");
+        usernamePatient.addName().setFamily("Smith").addGiven("John");
+
+        val outcome: MethodOutcome? = try {
+            testClient.create()
+                .resource(usernamePatient)
+                .prettyPrint()
+                .encodedJson()
+                .execute()
+        } catch (e: Exception) {
+            null
+        }
+        Assertions.assertNotNull(outcome)
+        val newId = outcome!!.resource.idElement.idPart
+
+        // update
+        val noUsernamePatient = Patient()
+        noUsernamePatient.id = "Patient/$newId"
+        noUsernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdateDifferent");
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M");
+
+        val outcomePut: MethodOutcome? = try {
+            testClient.update()
+                .resource(noUsernamePatient)
+                .prettyPrint()
+                .encodedJson()
+                .execute()
+        } catch (e: Exception) {
+            Assertions.assertTrue(e is InternalErrorException)
+            null
+        }
+        Assertions.assertNull(outcomePut)
+
+        // read
+        val patient: Patient = testClient.read()
+            .resource(Patient::class.java)
+            .withId(newId)
+            .execute()
+
+        Assertions.assertEquals(1, patient.nameFirstRep.given.size)
+    }
+}

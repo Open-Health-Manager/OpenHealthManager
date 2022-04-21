@@ -15,6 +15,9 @@ limitations under the License.
  */
 package org.mitre.healthmanager.dataMgr
 
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
+import ca.uhn.fhir.jpa.dao.TransactionProcessor
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
 import org.hl7.fhir.r4.model.*
@@ -33,7 +36,7 @@ fun isPDRMessage(header : MessageHeader) : Boolean {
     }
 }
 
-fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericClient) {
+fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, myTransactionProcessor: TransactionProcessor) {
 
     // validation: must have at least two entries (header plus content)
     // validation: username extension must be present
@@ -41,31 +44,25 @@ fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericCli
     val username = getUsernameFromPDRHeader(header)
 
     // identify internal account representation (create if needed
-    val patientInternalId = ensureUsername(username, client)
+    val patientInternalId = ensureUsername(username, patientDao)
 
     // store
     // 1. the Bundle in its raw form
     // 2. the MessageHeader linking the Bundle instance to the account Patient instance
     // 3. the non-MessageHeader contents of the Bundle individually
-    val bundleInternalId = storePDRAsRawBundle(theMessage, client)
-    val messageHeaderInternalId = storePDRMessageHeader(header, patientInternalId, bundleInternalId, client)
-    storeIndividualPDREntries(theMessage, patientInternalId, client, header)
+    val bundleInternalId = storePDRAsRawBundle(theMessage, bundleDao)
+    val messageHeaderInternalId = storePDRMessageHeader(header, patientInternalId, bundleInternalId, messageHeaderDao)
+    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header)
 
 }
 
-fun storePDRAsRawBundle(theMessage: Bundle, client: IGenericClient) : String {
-    // store the bundle as a bundle
-    val createBundleResults = client
-        .create()
-        .resource(theMessage)
-        .prettyPrint()
-        .encodedJson()
-        .execute()
-    // TODO: error handling
-    return createBundleResults.id.idPart
+fun storePDRAsRawBundle(theMessage: Bundle, bundleDao : IFhirResourceDao<Bundle>) : String {
+
+    val outcome = bundleDao.create(theMessage)
+    return outcome.resource.idElement.idPart
 }
 
-fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String, bundleInternalId : String, client: IGenericClient) : String {
+fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String, bundleInternalId : String, messageHeaderDao : IFhirResourceDao<MessageHeader>) : String {
 
     // Store the MessageHeader (theHeader) as its own instance with the following changes
     // The focus list of the message header will be updated to contain only references to
@@ -74,17 +71,11 @@ fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String,
     theHeader.focus.clear() // clear existing references for now to avoid need to adjust them later
     theHeader.focus.add(0, Reference("Bundle/$bundleInternalId"))
     theHeader.focus.add(1, Reference("Patient/$patientInternalId"))
-    val createMessageHeaderResults = client
-        .create()
-        .resource(theHeader)
-        .prettyPrint()
-        .encodedJson()
-        .execute()
-    // TODO: error handling
-    return createMessageHeaderResults.id.idPart
+    val outcome = messageHeaderDao.create(theHeader)
+    return outcome.resource.idElement.idPart
 }
 
-fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, client: IGenericClient, theHeader : MessageHeader?) {
+fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?) {
     val headerToCheck = theHeader ?: getMessageHeader(theMessage)
 
     if (headerToCheck.source.endpoint == "urn:apple:health-kit") {
@@ -155,10 +146,7 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, cli
     }
 
     // process the transaction
-    client
-        .transaction()
-        .withBundle(theMessage)
-        .execute()
+    val outcome = myTransactionProcessor.transaction(null, theMessage, false)
     /// TODO: error handling
 
 }

@@ -16,32 +16,47 @@ limitations under the License.
 
 package org.mitre.healthmanager.sphr
 
-import ca.uhn.fhir.context.FhirContext
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
+import ca.uhn.fhir.jpa.dao.TransactionProcessor
 import ca.uhn.fhir.jpa.dao.r4.FhirSystemDaoR4
 import ca.uhn.fhir.jpa.starter.AppProperties
 import ca.uhn.fhir.rest.api.server.RequestDetails
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
 import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.r4.model.*
-import org.springframework.beans.factory.annotation.Autowired
+import org.hl7.fhir.r4.model.Bundle
+import org.hl7.fhir.r4.model.MessageHeader
+import org.hl7.fhir.r4.model.Patient
 import org.mitre.healthmanager.dataMgr.isPDRMessage
 import org.mitre.healthmanager.dataMgr.processPDR
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 
 
 @Autowired
-var appProperties: AppProperties? = null
+val appProperties: AppProperties? = null
 
 open class ProcessMessage : FhirSystemDaoR4() {
 
-    override fun processMessage(theRequestDetails: RequestDetails, theMessage: IBaseBundle?): IBaseBundle {
+    @Autowired
+    @Qualifier("myPatientDaoR4")
+    private lateinit var myPatientDao: IFhirResourceDaoPatient<Patient>
 
-        val fhirContext : FhirContext = myDaoRegistry?.systemDao?.context
-            ?: throw InternalErrorException("no fhircontext")
+    @Autowired
+    @Qualifier("myBundleDaoR4")
+    private lateinit var myBundleDao: IFhirResourceDao<Bundle>
+
+    @Autowired
+    @Qualifier("myMessageHeaderDaoR4")
+    private lateinit var myMessageHeaderDao: IFhirResourceDao<MessageHeader>
+
+    @Autowired
+    private lateinit var myTransactionProcessor: TransactionProcessor
+
+    override fun processMessage(theRequestDetails: RequestDetails, theMessage: IBaseBundle?): IBaseBundle {
 
         // Validation and initial processing
         // - payload must be a bundle
-
         if (theMessage !is Bundle) {
             throw UnprocessableEntityException("bundle not provided to \$process-message")
         }
@@ -50,7 +65,7 @@ open class ProcessMessage : FhirSystemDaoR4() {
         val theHeader = getMessageHeader(theMessage)
 
         if (isPDRMessage(theHeader) ) {
-            processPDR(theHeader, theMessage, fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase))
+            processPDR(theHeader, theMessage, myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor)
         }
         else {
             throw UnprocessableEntityException("message event not supported")
