@@ -66,8 +66,7 @@ class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patien
             throw UnprocessableEntityException("\$create-account parameter must be non-empty")
         }
 
-        val serverAddress = theServletRequest.requestURL.toString().substringBefore("\$")
-        rebuildAccount(username, ctx.newRestfulGenericClient(serverAddress), myPatientDaoR4, myBundleDaoR4, myMessageHeaderDaoR4, myTransactionProcessor)
+        rebuildAccount(username, myPatientDaoR4, myBundleDaoR4, myMessageHeaderDaoR4, myTransactionProcessor, theServletRequest)
 
         theServletResponse.contentType = "application/fhir+json"
         theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))
@@ -100,8 +99,7 @@ class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patien
             throw UnprocessableEntityException("\$create-account parameter must be non-empty")
         }
 
-        val serverAddress = theServletRequest.requestURL.toString().substringBefore("\$")
-        deleteAccount(username, ctx.newRestfulGenericClient(serverAddress), myPatientDaoR4, myTransactionProcessor)
+        deleteAccount(username, myPatientDaoR4, myTransactionProcessor, theServletRequest)
 
         theServletResponse.contentType = "application/fhir+json"
         theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))

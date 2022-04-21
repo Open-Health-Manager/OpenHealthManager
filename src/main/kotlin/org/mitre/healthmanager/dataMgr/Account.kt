@@ -21,17 +21,16 @@ import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
 import ca.uhn.fhir.jpa.dao.TransactionProcessor
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap
 import ca.uhn.fhir.model.primitive.IdDt
-import ca.uhn.fhir.rest.client.api.IGenericClient
+import ca.uhn.fhir.rest.api.server.IBundleProvider
 import ca.uhn.fhir.rest.param.ReferenceParam
 import ca.uhn.fhir.rest.param.TokenParam
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
-import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.instance.model.api.IBaseResource
 import org.hl7.fhir.r4.model.*
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent
-import javax.jms.Message
+import javax.servlet.http.HttpServletRequest
 
-fun rebuildAccount(username : String, client: IGenericClient, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor) {
+fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest) {
 
     if (username == "") {
         throw InternalErrorException("Rebuild failed: no patient record for '$username'")
@@ -42,7 +41,7 @@ fun rebuildAccount(username : String, client: IGenericClient, patientDao : IFhir
 
     // Simple initial implementation
     // 1. use $everything to get resources associated with the account
-    val everythingBundle = getEverythingForAccount(username, accountPatientId, client, patientDao)
+    val everythingBundle = getEverythingForAccount(username, accountPatientId, patientDao, originalRequest)
     // 2. create a transaction that deletes them all except for the patient itself
     val deleteTransactionBundle = getEverythingDeleteTransactionBundle(everythingBundle)
     // 3. include reversion of the patient instance back to the skeleton record
@@ -52,15 +51,14 @@ fun rebuildAccount(username : String, client: IGenericClient, patientDao : IFhir
     /// TODO: error handling
 
     // 5. reprocess all existing PDRs
-    val bundleIdList = getPDRBundleIdListForPatient(accountPatientId, messageHeaderDao, bundleDao)
-
+    val bundleIdList = getPDRBundleIdListForPatient(accountPatientId, messageHeaderDao)
     bundleIdList.forEach { bundleId ->
         val theMessage = bundleDao.read(IdDt("Bundle/$bundleId"))
         storeIndividualPDREntries(theMessage, accountPatientId, txProcessor, null)
     }
 }
 
-fun deleteAccount(username : String, client: IGenericClient, patientDao : IFhirResourceDaoPatient<Patient>, txProcessor: TransactionProcessor) {
+fun deleteAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest) {
 
     /// use username to find the patient id
     val accountPatientId = getPatientIdForUsername(username, patientDao)
@@ -68,7 +66,7 @@ fun deleteAccount(username : String, client: IGenericClient, patientDao : IFhirR
 
     // Simple initial implementation
     // 1. use $everything to get resources associated with the account
-    val everythingBundle = getEverythingForAccount(username, accountPatientId, client, patientDao)
+    val everythingBundle = getEverythingForAccount(username, accountPatientId, patientDao, originalRequest)
     // 2. create a transaction that deletes them all except for the patient itself
     val deleteTransactionBundle = getEverythingDeleteTransactionBundle(everythingBundle, true)
     // 3. submit the bundle as a transaction
@@ -89,7 +87,7 @@ fun createAccount(username : String, patientDao : IFhirResourceDaoPatient<Patien
 
 }
 
-fun getEverythingForAccount(username: String, patientId: String?, client: IGenericClient, patientDao : IFhirResourceDaoPatient<Patient> ) : Bundle {
+fun getEverythingForAccount(username: String, patientId: String?, patientDao : IFhirResourceDaoPatient<Patient> , originalRequest : HttpServletRequest) : IBundleProvider {
     val updateId = when {
         (patientId == null) -> {
             getPatientIdForUsername(username, patientDao)
@@ -99,51 +97,36 @@ fun getEverythingForAccount(username: String, patientId: String?, client: IGener
         }
     }
 
-    //val everythingFromDao = patientDao.patientInstanceEverything(null, IdDt("Patient/$updateId"), null, null, null, null, null, null, null, null)
+    val requestDetails = ca.uhn.fhir.rest.server.servlet.ServletRequestDetails()
+    requestDetails.servletRequest = originalRequest
+    val everythingFromDao = patientDao.patientInstanceEverything(originalRequest, IdDt("Patient/$updateId"), null, null, null, null, null, null, null, requestDetails)
 
-    val patientEverythingResult : Parameters = client
-        .operation()
-        .onInstance(IdType("Patient", updateId))
-        .named("\$everything")
-        .withNoParameters(Parameters::class.java)
-        .useHttpGet()
-        .execute()
-
-    if (patientEverythingResult.parameter.size == 0) {
+    if (everythingFromDao.isEmpty) {
         throw InternalErrorException("\$everything invocation failed for '$username'")
     }
 
-    when (val everythingBundle = patientEverythingResult.parameter[0].resource) {
-        is Bundle -> {
-            return everythingBundle
-        }
-        else -> {
-            throw InternalErrorException("\$everything didn't return a bundle")
-        }
-    }
+    return everythingFromDao
 
 }
 
-fun getEverythingDeleteTransactionBundle(everythingBundle : Bundle, fullRemoval : Boolean = false) : Bundle {
+fun getEverythingDeleteTransactionBundle(everythingBundle : IBundleProvider, fullRemoval : Boolean = false) : Bundle {
 
     val transactionBundle = Bundle()
-    everythingBundle.entry.forEach { theEntry ->
-        when (theEntry.resource) {
-            is Patient, is MessageHeader, is Bundle -> {
-                if (fullRemoval) {
-                    val deleteEntry = BundleEntryComponent()
-                    deleteEntry.request.method = Bundle.HTTPVerb.DELETE
-                    deleteEntry.request.url =
-                        theEntry.resource.resourceType.name + "/" + theEntry.resource.idElement.idPart
-                    transactionBundle.entry.add(deleteEntry)
-                }
-            }
-            else -> {
+    everythingBundle.allResources.forEach { theEntry ->
+        if ( ((theEntry.idElement.resourceType == "Patient") || (theEntry.idElement.resourceType == "MessageHeader") || (theEntry.idElement.resourceType == "Bundle"))) {
+            if (fullRemoval) {
                 val deleteEntry = BundleEntryComponent()
                 deleteEntry.request.method = Bundle.HTTPVerb.DELETE
-                deleteEntry.request.url = theEntry.resource.resourceType.name + "/" + theEntry.resource.idElement.idPart
+                deleteEntry.request.url =
+                    theEntry.idElement.resourceType + "/" + theEntry.idElement.idPart
                 transactionBundle.entry.add(deleteEntry)
             }
+        }
+        else {
+            val deleteEntry = BundleEntryComponent()
+            deleteEntry.request.method = Bundle.HTTPVerb.DELETE
+            deleteEntry.request.url = theEntry.idElement.resourceType + "/" + theEntry.idElement.idPart
+            transactionBundle.entry.add(deleteEntry)
         }
 
 
@@ -233,7 +216,7 @@ fun ensureUsername(username : String, patientDao : IFhirResourceDaoPatient<Patie
     return getPatientIdForUsername(username, patientDao) ?: createAccountSkeletonPatientInstance(username, patientDao)
 }
 
-fun getPDRBundleIdListForPatient(patientId: String, messageHeaderDao : IFhirResourceDao<MessageHeader>, bundleDao : IFhirResourceDao<Bundle>) : List<String> {
+fun getPDRBundleIdListForPatient(patientId: String, messageHeaderDao : IFhirResourceDao<MessageHeader>) : List<String> {
 
     val searchParameterMap = SearchParameterMap()
     searchParameterMap.add(MessageHeader.SP_FOCUS, ReferenceParam(IdDt("Patient/$patientId")))
