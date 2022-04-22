@@ -23,6 +23,7 @@ import org.apache.commons.io.IOUtils
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.junit.jupiter.api.*
+import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
@@ -197,17 +198,4 @@ class ProcessMessageTests {
             }
         }
     }
-}
-
-fun stringFromResource(theLocation : String) : String {
-    val inputStream : InputStream = if (theLocation.startsWith(File.separator)) {
-        FileInputStream(theLocation)
-    }
-    else {
-        val resourceLoader = DefaultResourceLoader()
-        val resource = resourceLoader.getResource(theLocation)
-        resource.inputStream
-    }
-
-    return IOUtils.toString(inputStream, com.google.common.base.Charsets.UTF_8)
 }

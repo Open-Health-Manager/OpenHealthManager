@@ -22,12 +22,12 @@ import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
 import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.r4.model.*
+import org.hl7.fhir.r4.model.Bundle
+import org.hl7.fhir.r4.model.Patient
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.mitre.healthmanager.searchForPatientByUsername
-import org.mitre.healthmanager.sphr.ProcessMessageTests
-import org.mitre.healthmanager.sphr.stringFromResource
+import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
@@ -66,8 +66,8 @@ class PatientUsernameTests {
         val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
 
         val noUsernamePatient = Patient()
-        noUsernamePatient.addIdentifier().setSystem("urn:system").setValue("12345");
-        noUsernamePatient.addName().setFamily("Smith").addGiven("John");
+        noUsernamePatient.addIdentifier().setSystem("urn:system").setValue("12345")
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John")
 
         val outcome: MethodOutcome? = try {
             testClient.create()
@@ -132,8 +132,8 @@ class PatientUsernameTests {
 
         // create
         val usernamePatient = Patient()
-        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testCreate");
-        usernamePatient.addName().setFamily("Smith").addGiven("John");
+        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testCreate")
+        usernamePatient.addName().setFamily("Smith").addGiven("John")
 
         val outcome: MethodOutcome? = try {
             testClient.create()
@@ -150,7 +150,7 @@ class PatientUsernameTests {
         // update
         val noUsernamePatient = Patient()
         noUsernamePatient.id = "Patient/$newId"
-        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M");
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M")
 
         val outcomePut: MethodOutcome? = try {
             testClient.update()
@@ -181,8 +181,8 @@ class PatientUsernameTests {
 
         // create
         val usernamePatient = Patient()
-        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdate");
-        usernamePatient.addName().setFamily("Smith").addGiven("John");
+        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdate")
+        usernamePatient.addName().setFamily("Smith").addGiven("John")
 
         val outcome: MethodOutcome? = try {
             testClient.create()
@@ -199,8 +199,8 @@ class PatientUsernameTests {
         // update
         val noUsernamePatient = Patient()
         noUsernamePatient.id = "Patient/$newId"
-        noUsernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdateDifferent");
-        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M");
+        noUsernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testBadUpdateDifferent")
+        noUsernamePatient.addName().setFamily("Smith").addGiven("John").addGiven("M")
 
         val outcomePut: MethodOutcome? = try {
             testClient.update()

@@ -19,10 +19,14 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
-import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.r4.model.*
-import org.junit.jupiter.api.*
+import org.hl7.fhir.r4.model.Bundle
+import org.hl7.fhir.r4.model.IdType
+import org.hl7.fhir.r4.model.MessageHeader
+import org.hl7.fhir.r4.model.Parameters
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Test
 import org.mitre.healthmanager.searchForPatientByUsername
+import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort

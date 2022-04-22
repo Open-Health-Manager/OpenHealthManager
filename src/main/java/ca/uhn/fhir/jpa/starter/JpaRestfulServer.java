@@ -12,6 +12,7 @@ import org.hl7.fhir.r4.model.MessageHeader;
 import org.hl7.fhir.r4.model.Patient;
 import org.mitre.healthmanager.dataMgr.AccountInterceptor;
 import org.mitre.healthmanager.dataMgr.AccountProvider;
+import org.mitre.healthmanager.sphr.RequestInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Import;
@@ -47,12 +48,13 @@ public class JpaRestfulServer extends BaseJpaRestfulServer {
 
 		registerProvider(new AccountProvider(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor));
 		registerInterceptor(new AccountInterceptor());
+		registerInterceptor(new RequestInterceptor(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor));
 
 		ExceptionHandlingInterceptor interceptor = new ExceptionHandlingInterceptor();
 		registerInterceptor(interceptor);
 
 		// Return the stack trace to the client for the following exception types
-		//interceptor.setReturnStackTracesForExceptionTypes(InternalErrorException.class, NullPointerException.class);
+		interceptor.setReturnStackTracesForExceptionTypes(InternalErrorException.class, NullPointerException.class);
 
   }
 

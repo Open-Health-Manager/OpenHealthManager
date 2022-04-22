@@ -22,13 +22,19 @@ import ca.uhn.fhir.jpa.dao.TransactionProcessor
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap
 import ca.uhn.fhir.model.primitive.IdDt
 import ca.uhn.fhir.rest.api.server.IBundleProvider
+import ca.uhn.fhir.rest.api.server.RequestDetails
 import ca.uhn.fhir.rest.param.ReferenceParam
 import ca.uhn.fhir.rest.param.TokenParam
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
+import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
+import ca.uhn.fhir.rest.server.servlet.ServletRequestDetails
 import org.hl7.fhir.instance.model.api.IBaseResource
 import org.hl7.fhir.r4.model.*
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent
+import org.mitre.healthmanager.dataMgr.resourceTypes.findUsernameViaLinkedPatient
 import javax.servlet.http.HttpServletRequest
+
+const val usernameSystem = "urn:mitre:healthmanager:account:username"
 
 fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest) {
 
@@ -136,7 +142,7 @@ fun getEverythingDeleteTransactionBundle(everythingBundle : IBundleProvider, ful
 }
 
 fun internalPatientSearchByUsername(username: String, patientDao : IFhirResourceDaoPatient<Patient>) : Patient? {
-    val idParam = TokenParam("urn:mitre:healthmanager:account:username", username)
+    val idParam = TokenParam(usernameSystem, username)
     val searchParameterMap = SearchParameterMap()
     searchParameterMap.add(Patient.SP_IDENTIFIER, idParam)
     searchParameterMap.isLoadSynchronous = true /// disable cache since we may have just created
@@ -168,7 +174,7 @@ fun getPatientIdForUsername(username: String, patientDao : IFhirResourceDaoPatie
 
 fun getUsernameFromPatient(patient : Patient) : String? {
     patient.identifier.forEach {
-        if (it.system == "urn:mitre:healthmanager:account:username") {
+        if (it.system == usernameSystem) {
             return it.value
         }
     }
@@ -178,7 +184,7 @@ fun getUsernameFromPatient(patient : Patient) : String? {
 fun addUsernameToPatient(patient: Patient, username: String) {
     val identifier = Identifier()
     identifier.value = username
-    identifier.system = "urn:mitre:healthmanager:account:username"
+    identifier.system = usernameSystem
     patient.identifier.add(0, identifier)
 }
 
@@ -211,9 +217,15 @@ fun getSkeletonPatientInstanceUpdateEntry(username: String, patientId : String?,
     return entry
 }
 
-fun ensureUsername(username : String, patientDao : IFhirResourceDaoPatient<Patient>) : String {
+fun ensureUsername(username : String, patientDao : IFhirResourceDaoPatient<Patient>, allowCreate : Boolean = true) : String {
 
-    return getPatientIdForUsername(username, patientDao) ?: createAccountSkeletonPatientInstance(username, patientDao)
+    return getPatientIdForUsername(username, patientDao) ?:
+        if (allowCreate) {
+            createAccountSkeletonPatientInstance(username, patientDao)
+        }
+        else {
+            throw UnprocessableEntityException("account '$username' does not exist")
+        }
 }
 
 fun getPDRBundleIdListForPatient(patientId: String, messageHeaderDao : IFhirResourceDao<MessageHeader>) : List<String> {
@@ -244,4 +256,70 @@ fun getPDRBundleIdListForPatient(patientId: String, messageHeaderDao : IFhirReso
 
     return bundleIdList
 
+}
+
+/// places to look
+/// - resource's meta.extension
+/// - find a linked patient
+fun getUsernameForRequest(requestDetails: RequestDetails, patientDao : IFhirResourceDaoPatient<Patient>) : String? {
+
+
+    when (val theResource = requestDetails.resource) {
+        is DomainResource -> {
+
+            // meta extension
+            if (theResource.meta.hasExtension(pdrAccountExtension)) {
+                return theResource.meta.getExtensionByUrl(pdrAccountExtension).value.primitiveValue()
+            }
+            // linked patient
+            findUsernameViaLinkedPatient(theResource, patientDao)?.let {
+                return it
+            }
+        }
+    }
+
+    return null
+}
+
+fun addPatientAccountExtension(theResource: DomainResource, username: String) {
+    val pdrAccountExtension = getPatientAccountExtensionFromResource(theResource)
+    if (pdrAccountExtension.hasValue()) {
+        if (pdrAccountExtension.value.toString() != username) {
+            throw UnprocessableEntityException("cannot change username associated with a resource")
+        }
+    }
+    else {
+        pdrAccountExtension.setValue(StringType(username))
+    }
+}
+
+fun getPatientAccountExtensionFromResource(theResource: DomainResource) : Extension {
+    return theResource.meta.getExtensionByUrl(pdrAccountExtension)
+        ?: run {
+            /// Empty list
+            val newExtension = Extension().setUrl(pdrAccountExtension)
+            theResource.meta.extension.add(newExtension)
+            newExtension
+        }
+}
+
+/// places to look
+/// - resource's meta.source
+/// - http headers
+fun getSourceForRequest(requestDetails: ServletRequestDetails) : String {
+
+
+    when (val theResource = requestDetails.resource) {
+        is DomainResource -> {
+            // meta extension
+            if (theResource.meta.hasSource()) {
+                return theResource.meta.source
+            }
+        }
+    }
+
+    // try to get a user agent or IP address from request
+    requestDetails.getHeader("User-Agent")?.let { return it }
+    requestDetails.getHeader("X-FORWARDED-FOR")?.let {return it}
+    return requestDetails.servletRequest.remoteAddr
 }

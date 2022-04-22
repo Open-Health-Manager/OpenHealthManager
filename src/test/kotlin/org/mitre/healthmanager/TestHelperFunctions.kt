@@ -16,11 +16,16 @@ limitations under the License.
 package org.mitre.healthmanager
 
 import ca.uhn.fhir.rest.client.api.IGenericClient
+import org.apache.commons.io.IOUtils
 import org.awaitility.Awaitility
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.Bundle
 import org.hl7.fhir.r4.model.Patient
 import org.junit.jupiter.api.Assertions
+import org.springframework.core.io.DefaultResourceLoader
+import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 fun searchForPatientByUsername (username: String, client: IGenericClient, waitSeconds : Long) : String? {
@@ -54,4 +59,17 @@ fun searchForPatientByUsername (username: String, client: IGenericClient, waitSe
         Assertions.fail("no results for username $username")
     }
     return null
+}
+
+fun stringFromResource(theLocation : String) : String {
+    val inputStream : InputStream = if (theLocation.startsWith(File.separator)) {
+        FileInputStream(theLocation)
+    }
+    else {
+        val resourceLoader = DefaultResourceLoader()
+        val resource = resourceLoader.getResource(theLocation)
+        resource.inputStream
+    }
+
+    return IOUtils.toString(inputStream, com.google.common.base.Charsets.UTF_8)
 }
