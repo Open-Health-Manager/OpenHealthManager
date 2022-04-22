@@ -33,48 +33,10 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
 
         when (restOperation) {
             RestOperationTypeEnum.CREATE -> {
-
-                val theResource : DomainResource =  if (requestDetails.resource is DomainResource) requestDetails.resource as DomainResource else throw InternalErrorException("no DomainResource for create")
-
-                val username = getUsernameForRequest(requestDetails, myPatientDaoR4)
-                    ?: throw UnprocessableEntityException("could not identify account username for CREATE")
-                val patientId = ensureUsername(username, myPatientDaoR4, false)
-                val source = getSourceForRequest(serveletRequestDetails)
-                val pdrMessageHeader : MessageHeader = findRecentPDRForPatientAndSource(patientId, source, 120, myMessageHeaderDaoR4)
-                ?: run {
-                    // no recent PDR, create one
-                    val newMessageHeader = generatePDRMessageHeaderObject(username, source)
-                    val newPDRBundle = generatePDRBundleObject(newMessageHeader)
-                    val newPDRBundleId = storePDRAsRawBundle(newPDRBundle, myBundleDaoR4)
-                    val newMessageHeaderId = storePDRMessageHeader(newMessageHeader, patientId, newPDRBundleId, myMessageHeaderDaoR4)
-                    newPDRBundle.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$newMessageHeaderId"))
-                    updatePDRRawBundle(newPDRBundle, newPDRBundleId, myBundleDaoR4) // links added
-                    newMessageHeader
-                }
-
-                // add resource to PDR Bundle
-                val pdrBundleId = getBundleIdFromMessageHeader(pdrMessageHeader)
-                val pdrBundle = myBundleDaoR4.read(IdDt(pdrBundleId))
-                pdrBundle.entry.add(Bundle.BundleEntryComponent().setResource(theResource.copy()))
-                updatePDRRawBundle(pdrBundle, pdrBundleId, myBundleDaoR4)
-
-                // update MessageHeader lastUpdated timestamp
-                // todo
-
-                // add bundle id and account username to the created resource
-                addPDRLinkExtension(theResource, pdrBundleId)
-                addPatientAccountExtension(theResource, username)
-
-                // ready to file as normal - will update bundle link afterwards
-
-                // todo: create - special case for patient
+                addUpdateOrCreateToPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.UPDATE -> {
-                val username = getUsernameForRequest(requestDetails, myPatientDaoR4)
-                    ?: throw UnprocessableEntityException("could not identify account username for UPDATE")
-                val patientId = ensureUsername(username, myPatientDaoR4, false)
-                val source = getSourceForRequest(serveletRequestDetails)
-                // todo: update - will need to handle
+                addUpdateOrCreateToPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.TRANSACTION -> {
                 val username = getUsernameForRequest(requestDetails, myPatientDaoR4)
@@ -82,12 +44,14 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 val patientId = ensureUsername(username, myPatientDaoR4, false)
                 val source = getSourceForRequest(serveletRequestDetails)
                 // todo: transaction - will need to handle
+                throw UnprocessableEntityException("Direct Transactions not supported")
             }
             RestOperationTypeEnum.BATCH -> {
                 val username = getUsernameForRequest(requestDetails, myPatientDaoR4)
                     ?: throw UnprocessableEntityException("could not identify account username for BATCH")
                 val source = getSourceForRequest(serveletRequestDetails)
                 // todo: batch - will need to handle
+                throw UnprocessableEntityException("Direct Batches not supported")
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
                 // todo: operation - will need to handle in some cases
@@ -136,52 +100,15 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
 
         when (requestDetails.restOperationType) {
             RestOperationTypeEnum.CREATE -> {
-                val theResource : DomainResource = if (responseResource is DomainResource) responseResource else throw InternalErrorException("expected domain resource")
-                val pdrBundleLinkExtension = getPDRLinkListExtensionFromResource(theResource)
-                if (pdrBundleLinkExtension.extension.size == 0) {
-                    throw UnprocessableEntityException("resource stored without a bundle link")
-                }
-                val link = theResource.idElement.toString()
-                val lastBundleId = when (val extValue = pdrBundleLinkExtension.extension.last().value) {
-                    is Reference -> {
-                        extValue.reference
-                    }
-                    else -> {
-                        throw InternalErrorException("bad pdr link extension")
-                    }
-
-                }
-                val storedBundle = myBundleDaoR4.read(IdDt(lastBundleId))
-                storedBundle.entry.last().link.add(Bundle.BundleLinkComponent().setUrl(link))
-                updatePDRRawBundle(storedBundle, lastBundleId, myBundleDaoR4)
+                updatePDRBundleWithStoredLink(requestDetails, responseResource)
             }
             RestOperationTypeEnum.UPDATE -> {
-                val theResource : DomainResource = if (responseResource is DomainResource) responseResource else throw InternalErrorException("expected domain resource")
-
-                val pdrBundleLinkExtension = getPDRLinkListExtensionFromResource(theResource)
-                if (pdrBundleLinkExtension.extension.size == 0) {
-                    throw UnprocessableEntityException("resource stored without a bundle link")
-                }
-                val link = theResource.idElement.toString()
-                val lastBundleId = when (val extValue = pdrBundleLinkExtension.extension.last().value) {
-                    is Reference -> {
-                        extValue.reference
-                    }
-                    else -> {
-                        throw InternalErrorException("bad pdr link extension")
-                    }
-
-                }
-                val storedBundle = myBundleDaoR4.read(IdDt(lastBundleId))
-                storedBundle.entry.last().link.add(Bundle.BundleLinkComponent().setUrl(link))
-                updatePDRRawBundle(storedBundle, lastBundleId, myBundleDaoR4)
+                updatePDRBundleWithStoredLink(requestDetails, responseResource)
             }
             RestOperationTypeEnum.TRANSACTION -> {
-
                 // todo: transaction - will need to handle
             }
             RestOperationTypeEnum.BATCH -> {
-
                 // todo: batch - will need to handle
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
@@ -223,4 +150,75 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
 
         return true
     }
+
+    private fun addUpdateOrCreateToPDR(requestDetails: RequestDetails,
+                                       serveletRequestDetails: ServletRequestDetails,
+                                       restOperation: RestOperationTypeEnum) {
+        val theResource : DomainResource =  if (requestDetails.resource is DomainResource) requestDetails.resource as DomainResource else throw InternalErrorException("no DomainResource for create")
+
+        // NOTE on theResource.id
+        // - HAPI ensures it MUST be populated if this is a PUT (Update or Create)
+        // - HAPI clears it out if this is a POST (Create with system id)
+        // therefore, no handling is needed here and we can infer when re-processing PDRs
+        // based on the presence of the id field whether we're doing a put or a post
+
+        // todo: special case for patient create. cases include:
+        // - create (put) with a specific id
+        // - system create turns into a update (put)
+
+        val username = getUsernameForRequest(requestDetails, myPatientDaoR4)
+            ?: throw UnprocessableEntityException("could not identify account username for CREATE")
+        val patientId = ensureUsername(username, myPatientDaoR4, false)
+        val source = getSourceForRequest(serveletRequestDetails)
+        val pdrMessageHeader : MessageHeader = findRecentPDRForPatientAndSource(patientId, source, 120, myMessageHeaderDaoR4)
+            ?: run {
+                // no recent PDR, create one
+                val newMessageHeader = generatePDRMessageHeaderObject(username, source)
+                val newPDRBundle = generatePDRBundleObject(newMessageHeader)
+                val newPDRBundleId = storePDRAsRawBundle(newPDRBundle, myBundleDaoR4)
+                val newMessageHeaderId = storePDRMessageHeader(newMessageHeader, patientId, newPDRBundleId, myMessageHeaderDaoR4)
+                newPDRBundle.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$newMessageHeaderId"))
+                updatePDRRawBundle(newPDRBundle, newPDRBundleId, myBundleDaoR4) // links added
+                newMessageHeader
+            }
+
+        // add resource to PDR Bundle
+        val pdrBundleId = getBundleIdFromMessageHeader(pdrMessageHeader)
+        val pdrBundle = myBundleDaoR4.read(IdDt(pdrBundleId))
+        pdrBundle.entry.add(Bundle.BundleEntryComponent().setResource(theResource.copy()))
+        updatePDRRawBundle(pdrBundle, pdrBundleId, myBundleDaoR4)
+
+        // update MessageHeader lastUpdated timestamp
+        // todo
+
+        // add bundle id and account username to the created resource
+        addPDRLinkExtension(theResource, pdrBundleId)
+        addPatientAccountExtension(theResource, username)
+
+        // ready to file as normal - will update bundle link afterwards
+    }
+
+    private fun updatePDRBundleWithStoredLink(requestDetails: RequestDetails,
+                                              responseResource: IBaseResource) {
+        val theResource : DomainResource = if (responseResource is DomainResource) responseResource else throw InternalErrorException("expected domain resource")
+
+        val pdrBundleLinkExtension = getPDRLinkListExtensionFromResource(theResource)
+        if (pdrBundleLinkExtension.extension.size == 0) {
+            throw UnprocessableEntityException("resource stored without a bundle link")
+        }
+        val link = theResource.idElement.toString()
+        val lastBundleId = when (val extValue = pdrBundleLinkExtension.extension.last().value) {
+            is Reference -> {
+                extValue.reference
+            }
+            else -> {
+                throw InternalErrorException("bad pdr link extension")
+            }
+
+        }
+        val storedBundle = myBundleDaoR4.read(IdDt(lastBundleId))
+        storedBundle.entry.last().link.add(Bundle.BundleLinkComponent().setUrl(link))
+        updatePDRRawBundle(storedBundle, lastBundleId, myBundleDaoR4)
+    }
+
 }
