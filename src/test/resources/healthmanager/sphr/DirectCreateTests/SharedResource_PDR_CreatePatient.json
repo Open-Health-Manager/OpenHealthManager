@@ -6,7 +6,7 @@
         "extension": [
           {
             "url": "https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/AccountExtension",
-            "valueString": "directWriteTwo"
+            "valueString": "sharedResourceWrite"
           }
         ],
         "eventUri": "urn:mitre:healthmanager:pdr",
@@ -22,12 +22,12 @@
         "identifier": [
           {
             "system": "urn:mitre:healthmanager:account:username",
-            "value": "directWriteTwo"
+            "value": "sharedResourceWrite"
           }
         ],
         "name": [
           {
-            "family": "DirectWriteTwo",
+            "family": "sharedResourceWrite",
             "given": [
               "Test"
             ]

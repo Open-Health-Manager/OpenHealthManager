@@ -32,6 +32,7 @@ import org.hl7.fhir.r4.model.Bundle.BundleType
 import org.mitre.healthmanager.dataMgr.resourceTypes.doCreate
 import org.mitre.healthmanager.dataMgr.resourceTypes.doUpdate
 import org.mitre.healthmanager.dataMgr.resourceTypes.findExistingResource
+import org.mitre.healthmanager.dataMgr.resourceTypes.isSharedResource
 import org.mitre.healthmanager.sphr.getMessageHeader
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -114,9 +115,10 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myT
     // - remove the first MessageHeader entry
     // - add extensions for links back to the updating PDR
     // - identify an existing entry to update if appropriate
-    val txBundle = Bundle()
-    txBundle.type = Bundle.BundleType.TRANSACTION
+    val accountTxBundle = Bundle()
+    accountTxBundle.type = BundleType.TRANSACTION
 
+    //val newEntryToOriginalIndexMap = HashMap<Bundle.BundleEntryComponent, Int>()
     for ((index, entry) in theMessage.entry.withIndex()) {
         if (index == 0) {
             /// skip PDR message header - handled already
@@ -128,31 +130,42 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myT
 
         // create a copy so that the bundle itself remains as sent by the source
         val theResource = entry.resource.copy()
-
-        // add link back to the updating Bundle
-        if (theResource is DomainResource) {
-            addPDRLinkExtension(theResource, theMessage.idElement.idPart)
-            addPatientAccountExtension(theResource, username)
-        }
-
-        val bundleEntry = findExistingResource(theResource, patientInternalId)?.let {
+        val bundleEntry = findExistingResource(theResource, patientInternalId)?.let { existingId ->
             // already exists - do an update
-            doUpdate(theResource, it, username)
+            doUpdate(theResource, existingId, username)
         } ?: run {
             // doesn't exist - do a create
             doCreate(theResource, username)
         }
-        if (bundleEntry != null) {
-            txBundle.addEntry(bundleEntry)
+
+        if ((bundleEntry != null) && (theResource is DomainResource)) {
+            if ( !isSharedResource(theResource)) {
+                addPatientAccountExtension(theResource, username)
+                // add link back to the updating Bundle
+                addPDRLinkExtension(theResource, theMessage.idElement.idPart)
+            }
+            accountTxBundle.addEntry(bundleEntry)
+            //newEntryToOriginalIndexMap[bundleEntry] = index
+        }
+        else {
+            throw InternalErrorException("failed to add tracking extensions: bundle entry missing or not a domain resource")
         }
     }
 
     // process the transaction
-    val outcome = myTransactionProcessor.transaction(null, txBundle, false)
+    val accountOutcome = myTransactionProcessor.transaction(null, accountTxBundle, false)
 
-    for ((index, entry) in outcome.entry.withIndex()) {
+    for ((index, entry) in accountOutcome.entry.withIndex()) {
         if (entry.response.hasLocation()) {
-            theMessage.entry[index+1].link.add(Bundle.BundleLinkComponent().setUrl(entry.response.location))
+            //val originalEntryIndex = newEntryToOriginalIndexMap[accountTxBundle.entry[index]] ?: throw InternalErrorException("failed to find original entry")
+            //val originalEntry = theMessage.entry[originalEntryIndex]
+            val originalEntry = theMessage.entry[index+1]
+            if (! isSharedResource(originalEntry.resource)) {
+                if (entry.response.location.substringBefore("/") != originalEntry.resource.javaClass.simpleName) {
+                    throw InternalErrorException("tx response order change")
+                }
+                originalEntry.link.add(Bundle.BundleLinkComponent().setUrl(entry.response.location))
+            }
         }
         else {
             throw InternalErrorException("didn't get a link back")

@@ -246,7 +246,31 @@
         "encounter": {
           "reference": "Encounter/10"
         },
-        "performedDateTime" : "2022-02-15T10:20:13-05:00"
+        "performedDateTime" : "2022-02-15T10:20:13-05:00",
+        "performer": [
+          {
+            "actor": {
+              "reference": "Practitioner/20"
+            }
+          }
+
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "20",
+        "name": [
+          {
+            "given": [
+              "practitioner"
+            ],
+            "family": "test"
+          }
+        ],
+        "active": true,
+        "gender": "female"
       }
     }
   ]

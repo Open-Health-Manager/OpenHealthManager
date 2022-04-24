@@ -21,6 +21,7 @@ import ca.uhn.fhir.rest.api.MethodOutcome
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
+import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.Bundle
 import org.hl7.fhir.r4.model.Patient
@@ -76,7 +77,7 @@ class PatientUsernameTests {
                 .encodedJson()
                 .execute()
         } catch (e: Exception) {
-            Assertions.assertTrue(e is InternalErrorException)
+            Assertions.assertTrue(e is UnprocessableEntityException)
             null
         }
         Assertions.assertNull(outcome)
@@ -128,11 +129,11 @@ class PatientUsernameTests {
         val methodName = "testUpdateWithoutUsername"
         ourLog.info("Entering $methodName()...")
         val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
-
+        val testUsername = "testCreate"
 
         // create
         val usernamePatient = Patient()
-        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue("testCreate")
+        usernamePatient.addIdentifier().setSystem("urn:mitre:healthmanager:account:username").setValue(testUsername)
         usernamePatient.addName().setFamily("Smith").addGiven("John")
 
         val outcome: MethodOutcome? = try {
@@ -145,7 +146,7 @@ class PatientUsernameTests {
             null
         }
         Assertions.assertNotNull(outcome)
-        val newId = outcome!!.resource.idElement.idPart
+        val newId = outcome!!.id.idPart
 
         // update
         val noUsernamePatient = Patient()
@@ -170,6 +171,9 @@ class PatientUsernameTests {
             .execute()
 
         Assertions.assertEquals(2, patient.nameFirstRep.given.size)
+        Assertions.assertEquals(1, patient.identifier.size)
+        Assertions.assertEquals(usernameSystem, patient.identifierFirstRep.system)
+        Assertions.assertEquals(testUsername, patient.identifierFirstRep.value)
     }
 
     @Test
@@ -177,7 +181,6 @@ class PatientUsernameTests {
         val methodName = "testUpdateToDifferentUsername"
         ourLog.info("Entering $methodName()...")
         val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
-
 
         // create
         val usernamePatient = Patient()
@@ -194,7 +197,7 @@ class PatientUsernameTests {
             null
         }
         Assertions.assertNotNull(outcome)
-        val newId = outcome!!.resource.idElement.idPart
+        val newId = outcome!!.id.idPart
 
         // update
         val noUsernamePatient = Patient()
@@ -209,7 +212,7 @@ class PatientUsernameTests {
                 .encodedJson()
                 .execute()
         } catch (e: Exception) {
-            Assertions.assertTrue(e is InternalErrorException)
+            Assertions.assertTrue(e is UnprocessableEntityException)
             null
         }
         Assertions.assertNull(outcomePut)

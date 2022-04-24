@@ -23,6 +23,8 @@ import org.apache.commons.io.IOUtils
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.junit.jupiter.api.*
+import org.mitre.healthmanager.dataMgr.pdrAccountExtension
+import org.mitre.healthmanager.dataMgr.pdrLinkListExtensionURL
 import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
@@ -172,26 +174,70 @@ class ProcessMessageTests {
         Assertions.assertEquals(1, patientEverythingResult.parameter.size)
         when (val everythingBundle = patientEverythingResult.parameter[0].resource) {
             is Bundle -> {
-                // 3 entries stored from the bundle
-                Assertions.assertEquals(5, everythingBundle.entry.size)
+                // 4 entries stored from the bundle
+                Assertions.assertEquals(6, everythingBundle.entry.size)
                 var foundPatient = false
                 var foundMessageHeader = false
                 var foundBundle = false
                 var foundEncounter = false
                 var foundProcedure = false
+                var foundPractitioner = false
                 everythingBundle.entry.forEach { entry ->
-                    when (entry.resource) {
-                        is Patient -> { foundPatient = true}
-                        is MessageHeader -> { foundMessageHeader = true}
-                        is Bundle -> { foundBundle = true}
-                        is Encounter -> { foundEncounter = true}
-                        is Procedure -> { foundProcedure = true}
+                    when (val theResource = entry.resource) {
+                        is Patient -> {
+                            foundPatient = true
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrAccountExtension))
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrLinkListExtensionURL))
+                        }
+                        is MessageHeader -> {
+                            foundMessageHeader = true
+                        }
+                        is Bundle -> {
+                            foundBundle = true
+                            for (entry in theResource.entry) {
+                                when (val entryResource = entry.resource) {
+                                    is Patient -> {
+                                        Assertions.assertEquals(1, entry.link.size)
+                                    }
+                                    is Encounter -> {
+                                        Assertions.assertEquals(1, entry.link.size)
+                                    }
+                                    is Procedure -> {
+                                        Assertions.assertEquals(1, entry.link.size)
+                                    }
+                                    is Practitioner -> {
+                                        Assertions.assertEquals(0, entry.link.size)
+                                    }
+                                    is MessageHeader -> {
+                                        Assertions.assertEquals(1, entry.link.size)
+                                    }
+                                    else -> {
+                                        Assertions.fail("unexpected entry resource type in bundle")
+                                    }
+                                }
+                            }
+                        }
+                        is Encounter -> {
+                            foundEncounter = true
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrAccountExtension))
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrLinkListExtensionURL))
+                        }
+                        is Procedure -> {
+                            foundProcedure = true
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrAccountExtension))
+                            Assertions.assertTrue(theResource.meta.hasExtension(pdrLinkListExtensionURL))
+                        }
+                        is Practitioner -> {
+                            foundPractitioner = true
+                            Assertions.assertFalse(theResource.meta.hasExtension(pdrAccountExtension))
+                            Assertions.assertFalse(theResource.meta.hasExtension(pdrLinkListExtensionURL))
+                        }
                         else -> {
                             Assertions.fail("unexpected resource type ${entry.resource.resourceType}")
                         }
                     }
                 }
-                Assertions.assertTrue(foundPatient && foundBundle && foundMessageHeader && foundProcedure && foundEncounter)
+                Assertions.assertTrue(foundPatient && foundBundle && foundMessageHeader && foundProcedure && foundEncounter && foundPractitioner)
             }
             else -> {
                 Assertions.fail("\$everything didn't return a bundle")

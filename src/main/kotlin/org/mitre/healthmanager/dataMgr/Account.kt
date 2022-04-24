@@ -34,6 +34,7 @@ import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent
 import org.mitre.healthmanager.dataMgr.resourceTypes.findUsernameViaLinkedPatient
 import javax.servlet.http.HttpServletRequest
 
+const val sharedUsername = "|SHARED-RESOURCE|"
 const val usernameSystem = "urn:mitre:healthmanager:account:username"
 
 fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest) {
@@ -194,8 +195,11 @@ fun getAccountSkeletonPatientInstance(username: String) : Patient {
     return patientSkeleton
 }
 
-fun createAccountSkeletonPatientInstance(username: String, patientDao : IFhirResourceDaoPatient<Patient>) : String {
+fun createAccountSkeletonPatientInstance(username: String, patientDao : IFhirResourceDaoPatient<Patient>, targetPatientIdForCreate : String? = null) : String {
     val skeleton = getAccountSkeletonPatientInstance(username)
+    //if (targetPatientIdForCreate != null) {
+        skeleton.id = targetPatientIdForCreate
+    //}
     val outcome = patientDao.create(skeleton)
     return outcome.resource.idElement.idPart
 }
@@ -217,11 +221,11 @@ fun getSkeletonPatientInstanceUpdateEntry(username: String, patientId : String?,
     return entry
 }
 
-fun ensureUsername(username : String, patientDao : IFhirResourceDaoPatient<Patient>, allowCreate : Boolean = true) : String {
+fun ensureUsername(username : String, patientDao : IFhirResourceDaoPatient<Patient>, allowCreate : Boolean = true, targetPatientIdForCreate : String? = null) : String {
 
     return getPatientIdForUsername(username, patientDao) ?:
         if (allowCreate) {
-            createAccountSkeletonPatientInstance(username, patientDao)
+            createAccountSkeletonPatientInstance(username, patientDao, targetPatientIdForCreate)
         }
         else {
             throw UnprocessableEntityException("account '$username' does not exist")
@@ -268,13 +272,14 @@ fun getUsernameForRequest(requestDetails: RequestDetails, patientDao : IFhirReso
         is DomainResource -> {
 
             // meta extension
-            if (theResource.meta.hasExtension(pdrAccountExtension)) {
-                return theResource.meta.getExtensionByUrl(pdrAccountExtension).value.primitiveValue()
-            }
+            val extensionUsername = if (theResource.meta.hasExtension(pdrAccountExtension)) {
+                theResource.meta.getExtensionByUrl(pdrAccountExtension).value.primitiveValue()
+            } else null
             // linked patient
-            findUsernameViaLinkedPatient(theResource, patientDao)?.let {
-                return it
-            }
+            val linkedPatientUsername = findUsernameViaLinkedPatient(theResource, patientDao)
+            return if ((extensionUsername != null) && (linkedPatientUsername != null) && (extensionUsername != linkedPatientUsername)) {
+                throw UnprocessableEntityException("asserted username does not match linked patient username")
+            } else extensionUsername ?: linkedPatientUsername
         }
     }
 

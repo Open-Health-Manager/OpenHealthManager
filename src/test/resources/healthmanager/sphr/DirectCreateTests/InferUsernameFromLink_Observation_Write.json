@@ -4,13 +4,7 @@
     "profile": [
       "http://hl7.org/fhir/us/pacio-fp/StructureDefinition/fp-observation"
     ],
-    "source": "urn:mitre:healthmanager:testSystem2",
-    "extension" : [
-      {
-        "url" : "https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/AccountExtension",
-        "valueString": "directWriteTwo"
-      }
-    ]
+    "source": "urn:mitre:healthmanager:testSystem2"
   },
   "category": [
     {

@@ -16,14 +16,10 @@ limitations under the License.
 package org.mitre.healthmanager.dataMgr.resourceTypes
 
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
-import org.hl7.fhir.r4.model.MessageHeader
+import org.hl7.fhir.r4.model.Observation
 import org.hl7.fhir.r4.model.Patient
-import org.mitre.healthmanager.dataMgr.getUsernameFromPDRHeader
 
-// get username from the PDR header
-fun MessageHeader.findUsernameViaLinkedPatient(patientDao : IFhirResourceDaoPatient<Patient>) : String? {
-
-    return getUsernameFromPDRHeader(this)
-    /// will throw and exception if not found - ok for now, only PDR Message Headers allowed
-
+// check the subject for a patient reference, and follow it to get the username
+fun Observation.findUsernameViaLinkedPatient(patientDao : IFhirResourceDaoPatient<Patient>) : String? {
+    return getPatientUsernameFromReference(this.subject, patientDao, "Observation")
 }
