@@ -35,6 +35,8 @@ public class JpaRestfulServer extends BaseJpaRestfulServer {
 	protected IFhirResourceDao<MessageHeader> myMessageHeaderDao;
 	@Autowired
 	private TransactionProcessor myTransactionProcessor;
+	@Autowired
+	private DaoRegistry myDaoRegistry;
 
 	private static final long serialVersionUID = 1L;
 
@@ -46,9 +48,9 @@ public class JpaRestfulServer extends BaseJpaRestfulServer {
   	protected void initialize() throws ServletException {
 		super.initialize();
 
-		registerProvider(new AccountProvider(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor));
+		registerProvider(new AccountProvider(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor, myDaoRegistry));
 		registerInterceptor(new AccountInterceptor());
-		registerInterceptor(new RequestInterceptor(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor));
+		registerInterceptor(new RequestInterceptor(myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor, myDaoRegistry));
 
 		ExceptionHandlingInterceptor interceptor = new ExceptionHandlingInterceptor();
 		registerInterceptor(interceptor);

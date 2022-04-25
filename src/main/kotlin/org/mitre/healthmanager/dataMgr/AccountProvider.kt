@@ -16,6 +16,7 @@ limitations under the License.
 package org.mitre.healthmanager.dataMgr
 
 import ca.uhn.fhir.context.FhirContext
+import ca.uhn.fhir.jpa.api.dao.DaoRegistry
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
 import ca.uhn.fhir.jpa.dao.MatchResourceUrlService
@@ -38,7 +39,8 @@ import javax.servlet.http.HttpServletResponse
 class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patient>,
                       private val myBundleDaoR4: IFhirResourceDao<Bundle>,
                       private val myMessageHeaderDaoR4: IFhirResourceDao<MessageHeader>,
-                      private val myTransactionProcessor: TransactionProcessor){
+                      private val myTransactionProcessor: TransactionProcessor,
+                      private val myDaoRegistry: DaoRegistry){
 
     @Operation(name = "\$rebuild-account", manualResponse = true, manualRequest = true)
     @Throws(
@@ -66,7 +68,7 @@ class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patien
             throw UnprocessableEntityException("\$create-account parameter must be non-empty")
         }
 
-        rebuildAccount(username, myPatientDaoR4, myBundleDaoR4, myMessageHeaderDaoR4, myTransactionProcessor, theServletRequest)
+        rebuildAccount(username, myPatientDaoR4, myBundleDaoR4, myMessageHeaderDaoR4, myTransactionProcessor, theServletRequest, myDaoRegistry)
 
         theServletResponse.contentType = "application/fhir+json"
         theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))

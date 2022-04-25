@@ -94,7 +94,7 @@ fun Resource.doUpdate(id: String, username: String) : Bundle.BundleEntryComponen
             "urn:uuid:$resourceId"
         }
         resourceId != "" -> {
-            "${entry.resource.resourceType}/$resourceId"
+            "${this.resourceType}/$resourceId"
         }
         else -> {
             "" // can't refer to this resource

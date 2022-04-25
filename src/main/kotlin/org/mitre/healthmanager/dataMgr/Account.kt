@@ -16,6 +16,7 @@ limitations under the License.
 
 package org.mitre.healthmanager.dataMgr
 
+import ca.uhn.fhir.jpa.api.dao.DaoRegistry
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
 import ca.uhn.fhir.jpa.dao.TransactionProcessor
@@ -37,7 +38,7 @@ import javax.servlet.http.HttpServletRequest
 const val sharedUsername = "|SHARED-RESOURCE|"
 const val usernameSystem = "urn:mitre:healthmanager:account:username"
 
-fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest) {
+fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, txProcessor: TransactionProcessor, originalRequest: HttpServletRequest, daoRegistry: DaoRegistry) {
 
     if (username == "") {
         throw InternalErrorException("Rebuild failed: no patient record for '$username'")
@@ -61,7 +62,7 @@ fun rebuildAccount(username : String, patientDao : IFhirResourceDaoPatient<Patie
     val bundleIdList = getPDRBundleIdListForPatient(accountPatientId, messageHeaderDao)
     bundleIdList.forEach { bundleId ->
         val theMessage = bundleDao.read(IdDt("Bundle/$bundleId"))
-        storeIndividualPDREntries(theMessage, accountPatientId, txProcessor, null, username)
+        storeIndividualPDREntries(theMessage, accountPatientId, txProcessor, null, username, daoRegistry)
     }
 }
 

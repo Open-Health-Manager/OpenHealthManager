@@ -16,6 +16,7 @@ limitations under the License.
 
 package org.mitre.healthmanager.sphr
 
+import ca.uhn.fhir.jpa.api.dao.DaoRegistry
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
 import ca.uhn.fhir.jpa.dao.TransactionProcessor
@@ -53,6 +54,9 @@ open class ProcessMessage : FhirSystemDaoR4() {
     @Autowired
     private lateinit var myTransactionProcessor: TransactionProcessor
 
+    @Autowired
+    private lateinit var myDaoRegistry: DaoRegistry
+
     override fun processMessage(theRequestDetails: RequestDetails, theMessage: IBaseBundle?): IBaseBundle {
 
         // Validation and initial processing
@@ -65,7 +69,7 @@ open class ProcessMessage : FhirSystemDaoR4() {
         val theHeader = getMessageHeader(theMessage)
 
         if (isPDRMessage(theHeader) ) {
-            processPDR(theHeader, theMessage, myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor)
+            processPDR(theHeader, theMessage, myPatientDao, myBundleDao, myMessageHeaderDao, myTransactionProcessor, myDaoRegistry)
         }
         else {
             throw UnprocessableEntityException("message event not supported")

@@ -15,6 +15,7 @@ limitations under the License.
  */
 package org.mitre.healthmanager.dataMgr
 
+import ca.uhn.fhir.jpa.api.dao.DaoRegistry
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
 import ca.uhn.fhir.jpa.dao.TransactionProcessor
@@ -54,7 +55,7 @@ fun isPDRMessage(header : MessageHeader) : Boolean {
     }
 }
 
-fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, myTransactionProcessor: TransactionProcessor) {
+fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, myTransactionProcessor: TransactionProcessor, doaRegistry: DaoRegistry) {
 
     // validation: must have at least two entries (header plus content)
     // validation: username extension must be present
@@ -71,7 +72,7 @@ fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirRe
     val bundleInternalId = storePDRAsRawBundle(theMessage, bundleDao)
     val messageHeaderInternalId = storePDRMessageHeader(header.copy(), patientInternalId, bundleInternalId, messageHeaderDao)
     theMessage.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$messageHeaderInternalId"))
-    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header, username)
+    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header, username, doaRegistry)
     updatePDRRawBundle(theMessage, bundleInternalId, bundleDao) // links added
 }
 
@@ -100,7 +101,7 @@ fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String,
     return outcome.resource.idElement.idPart
 }
 
-fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?, username : String) {
+fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?, username : String, doaRegistry: DaoRegistry) {
     val headerToCheck = theHeader ?: getMessageHeader(theMessage)
 
     if (headerToCheck.source.endpoint == "urn:apple:health-kit") {
@@ -142,6 +143,28 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myT
             if ( !isSharedResource(theResource)) {
                 addPatientAccountExtension(theResource, username)
                 // add link back to the updating Bundle
+
+                // make sure that we are starting with the latest pdr list
+                // this is managed by the system and should not be provided
+                // todo: refactor with similar code in RequestInterceptor
+                if (theResource.meta.hasExtension(pdrLinkListExtensionURL)) {
+                    theResource.meta.removeExtension(pdrLinkListExtensionURL)
+                }
+                if (bundleEntry.request.method == Bundle.HTTPVerb.PUT){
+                    val resourceType = theResource.resourceType.toString()
+                    val targetInternalId = bundleEntry.request.url.substringAfter("/")
+                    val resourceDao = doaRegistry.getResourceDao(resourceType)
+                        ?: throw InternalErrorException("failed to find the resource Dao for resource type '$resourceType'")
+                    val existingInstance = try {
+                        resourceDao.read(IdType(resourceType, targetInternalId))
+                    } catch (exception : Exception) {
+                        null
+                    }
+                    if ((existingInstance is Resource) && (existingInstance.meta.hasExtension(pdrLinkListExtensionURL))) {
+                        theResource.meta.extension.add(existingInstance.meta.getExtensionByUrl(pdrLinkListExtensionURL))
+                    }
+                }
+
                 addPDRLinkExtension(theResource, theMessage.idElement.idPart)
             }
             accountTxBundle.addEntry(bundleEntry)
