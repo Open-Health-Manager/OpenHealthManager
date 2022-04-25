@@ -331,7 +331,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                throw UnprocessableEntityException("Direct Deletes not supported")
+                //throw UnprocessableEntityException("Direct Deletes not supported")
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
@@ -379,7 +379,6 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             }
             RestOperationTypeEnum.TRANSACTION -> {
                 // todo: transaction - will need to handle
-                "test"
             }
             RestOperationTypeEnum.BATCH -> {
                 // todo: batch - will need to handle
@@ -394,7 +393,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                throw UnprocessableEntityException("Direct Deletes not supported")
+                //throw UnprocessableEntityException("Direct Deletes not supported")
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
