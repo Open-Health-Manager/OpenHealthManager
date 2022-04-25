@@ -19,20 +19,14 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
-import org.awaitility.Awaitility
-import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
-import org.junit.Assert
 import org.junit.jupiter.api.Assertions
-import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.mitre.healthmanager.searchForPatientByUsername
-import org.mitre.healthmanager.sphr.ProcessMessageTests
-import org.mitre.healthmanager.sphr.stringFromResource
+import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
-import java.util.concurrent.TimeUnit
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -50,7 +44,7 @@ import java.util.concurrent.TimeUnit
 )
 class RebuildAccountTests {
 
-    private val ourLog = LoggerFactory.getLogger(ProcessMessageTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(RebuildAccountTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER

@@ -15,17 +15,39 @@ limitations under the License.
  */
 package org.mitre.healthmanager.dataMgr
 
-import ca.uhn.fhir.rest.client.api.IGenericClient
+import ca.uhn.fhir.jpa.api.dao.DaoRegistry
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
+import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
+import ca.uhn.fhir.jpa.dao.TransactionProcessor
+import ca.uhn.fhir.jpa.searchparam.SearchParameterMap
+import ca.uhn.fhir.rest.api.SortOrderEnum
+import ca.uhn.fhir.rest.api.SortSpec
+import ca.uhn.fhir.rest.param.DateRangeParam
+import ca.uhn.fhir.rest.param.ReferenceParam
+import ca.uhn.fhir.rest.param.UriParam
+import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
+import org.hl7.fhir.instance.model.api.IBaseResource
 import org.hl7.fhir.r4.model.*
+import org.hl7.fhir.r4.model.Bundle.BundleType
+import org.mitre.healthmanager.dataMgr.resourceTypes.doCreate
+import org.mitre.healthmanager.dataMgr.resourceTypes.doUpdate
+import org.mitre.healthmanager.dataMgr.resourceTypes.findExistingResource
+import org.mitre.healthmanager.dataMgr.resourceTypes.isSharedResource
 import org.mitre.healthmanager.sphr.getMessageHeader
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.*
+
+
+const val pdrEvent = "urn:mitre:healthmanager:pdr"
+const val pdrAccountExtension = "https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/AccountExtension"
 
 fun isPDRMessage(header : MessageHeader) : Boolean {
     /// check header event
     return when (val headerEvent = header.event) {
         is UriType -> {
-            headerEvent.valueAsString == "urn:mitre:healthmanager:pdr"
+            headerEvent.valueAsString == pdrEvent
         }
         else -> {
             false
@@ -33,7 +55,7 @@ fun isPDRMessage(header : MessageHeader) : Boolean {
     }
 }
 
-fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericClient) {
+fun processPDR(header : MessageHeader, theMessage : Bundle, patientDao : IFhirResourceDaoPatient<Patient>, bundleDao : IFhirResourceDao<Bundle>, messageHeaderDao : IFhirResourceDao<MessageHeader>, myTransactionProcessor: TransactionProcessor, doaRegistry: DaoRegistry) {
 
     // validation: must have at least two entries (header plus content)
     // validation: username extension must be present
@@ -41,31 +63,32 @@ fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericCli
     val username = getUsernameFromPDRHeader(header)
 
     // identify internal account representation (create if needed
-    val patientInternalId = ensureUsername(username, client)
+    val patientInternalId = ensureUsername(username, patientDao)
 
     // store
     // 1. the Bundle in its raw form
     // 2. the MessageHeader linking the Bundle instance to the account Patient instance
     // 3. the non-MessageHeader contents of the Bundle individually
-    val bundleInternalId = storePDRAsRawBundle(theMessage, client)
-    val messageHeaderInternalId = storePDRMessageHeader(header, patientInternalId, bundleInternalId, client)
-    storeIndividualPDREntries(theMessage, patientInternalId, client, header)
-
+    val bundleInternalId = storePDRAsRawBundle(theMessage, bundleDao)
+    val messageHeaderInternalId = storePDRMessageHeader(header.copy(), patientInternalId, bundleInternalId, messageHeaderDao)
+    theMessage.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$messageHeaderInternalId"))
+    storeIndividualPDREntries(theMessage, patientInternalId, myTransactionProcessor, header, username, doaRegistry)
+    updatePDRRawBundle(theMessage, bundleInternalId, bundleDao) // links added
 }
 
-fun storePDRAsRawBundle(theMessage: Bundle, client: IGenericClient) : String {
-    // store the bundle as a bundle
-    val createBundleResults = client
-        .create()
-        .resource(theMessage)
-        .prettyPrint()
-        .encodedJson()
-        .execute()
-    // TODO: error handling
-    return createBundleResults.id.idPart
+fun storePDRAsRawBundle(theMessage: Bundle, bundleDao : IFhirResourceDao<Bundle>) : String {
+
+    val outcome = bundleDao.create(theMessage)
+    return outcome.resource.idElement.idPart
 }
 
-fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String, bundleInternalId : String, client: IGenericClient) : String {
+fun updatePDRRawBundle(theMessage: Bundle, internalBundleId : String, bundleDao : IFhirResourceDao<Bundle>) : String {
+
+    val outcome = bundleDao.update(theMessage)
+    return outcome.resource.idElement.idPart
+}
+
+fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String, bundleInternalId : String, messageHeaderDao : IFhirResourceDao<MessageHeader>) : String {
 
     // Store the MessageHeader (theHeader) as its own instance with the following changes
     // The focus list of the message header will be updated to contain only references to
@@ -74,17 +97,11 @@ fun storePDRMessageHeader(theHeader : MessageHeader, patientInternalId : String,
     theHeader.focus.clear() // clear existing references for now to avoid need to adjust them later
     theHeader.focus.add(0, Reference("Bundle/$bundleInternalId"))
     theHeader.focus.add(1, Reference("Patient/$patientInternalId"))
-    val createMessageHeaderResults = client
-        .create()
-        .resource(theHeader)
-        .prettyPrint()
-        .encodedJson()
-        .execute()
-    // TODO: error handling
-    return createMessageHeaderResults.id.idPart
+    val outcome = messageHeaderDao.create(theHeader)
+    return outcome.resource.idElement.idPart
 }
 
-fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, client: IGenericClient, theHeader : MessageHeader?) {
+fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, myTransactionProcessor: TransactionProcessor, theHeader : MessageHeader?, username : String, doaRegistry: DaoRegistry) {
     val headerToCheck = theHeader ?: getMessageHeader(theMessage)
 
     if (headerToCheck.source.endpoint == "urn:apple:health-kit") {
@@ -95,72 +112,88 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, cli
     }
 
     // store individual entries
-    // take the theMessage and make the following changes/checks:
-    // - type is transaction
-    // - remove MessageHeader entry
-    // - make sure request details for Patient is put with the ID from step 2 (patientInternalId)
-    // - make sure request details for all other types is post with whatever that type is
-    // - TODO: check that there is a patient entry (which is either an already existing patient or a new patient the ID needs to be updated by using the messageHeader focus list from above)
-    theMessage.type = Bundle.BundleType.TRANSACTION
-    var indexToRemove: Int? = null
-    var patientFound = false
+    // take the entries from theMessage and copy into a new bundle with type Transaction, and
+    // - remove the first MessageHeader entry
+    // - add extensions for links back to the updating PDR
+    // - identify an existing entry to update if appropriate
+    val accountTxBundle = Bundle()
+    accountTxBundle.type = BundleType.TRANSACTION
+
+    //val newEntryToOriginalIndexMap = HashMap<Bundle.BundleEntryComponent, Int>()
     for ((index, entry) in theMessage.entry.withIndex()) {
-
-        /// make sure a fullUrl is present
-        if ((entry.fullUrl == null) || (entry.fullUrl == "")) {
-            val entryId = entry.resource.idElement.idPart
-            entry.fullUrl = when {
-                entryId == null -> {
-                    "" // can't refer to this resource
-                }
-                isGUID(entryId) -> {
-                    "urn:uuid:$entryId"
-                }
-                entryId != "" -> {
-                    "${entry.resource.resourceType}/$entryId"
-                }
-                else -> {
-                    ""
-                }
-            }
+        if (index == 0) {
+            /// skip PDR message header - handled already
+            continue
+        }
+        if (entry.request.method == Bundle.HTTPVerb.DELETE) {
+            throw UnprocessableEntityException("Cannot process DELETE as a part of a PDR")
         }
 
-        // update / add request details
-        when (entry.resource.resourceType) {
-            ResourceType.MessageHeader -> {
-                indexToRemove = index
-            }
-            ResourceType.Patient -> {
-                if (patientFound) {
-                    throw UnprocessableEntityException("PDR cannot have more than 1 patient instance")
+        // create a copy so that the bundle itself remains as sent by the source
+        val theResource = entry.resource.copy()
+        val bundleEntry = findExistingResource(theResource, patientInternalId)?.let { existingId ->
+            // already exists - do an update
+            doUpdate(theResource, existingId, username)
+        } ?: run {
+            // doesn't exist - do a create
+            doCreate(theResource, username)
+        }
+
+        if ((bundleEntry != null) && (theResource is DomainResource)) {
+            if ( !isSharedResource(theResource)) {
+                addPatientAccountExtension(theResource, username)
+                // add link back to the updating Bundle
+
+                // make sure that we are starting with the latest pdr list
+                // this is managed by the system and should not be provided
+                // todo: refactor with similar code in RequestInterceptor
+                if (theResource.meta.hasExtension(pdrLinkListExtensionURL)) {
+                    theResource.meta.removeExtension(pdrLinkListExtensionURL)
                 }
-                else {
-                    patientFound = true
+                if (bundleEntry.request.method == Bundle.HTTPVerb.PUT){
+                    val resourceType = theResource.resourceType.toString()
+                    val targetInternalId = bundleEntry.request.url.substringAfter("/")
+                    val resourceDao = doaRegistry.getResourceDao(resourceType)
+                        ?: throw InternalErrorException("failed to find the resource Dao for resource type '$resourceType'")
+                    val existingInstance = try {
+                        resourceDao.read(IdType(resourceType, targetInternalId))
+                    } catch (exception : Exception) {
+                        null
+                    }
+                    if ((existingInstance is Resource) && (existingInstance.meta.hasExtension(pdrLinkListExtensionURL))) {
+                        theResource.meta.extension.add(existingInstance.meta.getExtensionByUrl(pdrLinkListExtensionURL))
+                    }
                 }
 
-                // update this patient record, linkages will be updated by bundle processing
-                entry.request.method = Bundle.HTTPVerb.PUT
-                entry.request.url = "Patient/" + patientInternalId
+                addPDRLinkExtension(theResource, theMessage.idElement.idPart)
             }
-            else -> {
-                // create for all else
-                entry.request.method = Bundle.HTTPVerb.POST
-                entry.request.url = entry.resource.resourceType.toString()
-            }
+            accountTxBundle.addEntry(bundleEntry)
+            //newEntryToOriginalIndexMap[bundleEntry] = index
         }
-    }
-    // remove the MessageHeader entry
-    if (indexToRemove is Int) {
-        theMessage.entry.removeAt(indexToRemove)
+        else {
+            throw InternalErrorException("failed to add tracking extensions: bundle entry missing or not a domain resource")
+        }
     }
 
     // process the transaction
-    client
-        .transaction()
-        .withBundle(theMessage)
-        .execute()
-    /// TODO: error handling
+    val accountOutcome = myTransactionProcessor.transaction(null, accountTxBundle, false)
 
+    for ((index, entry) in accountOutcome.entry.withIndex()) {
+        if (entry.response.hasLocation()) {
+            //val originalEntryIndex = newEntryToOriginalIndexMap[accountTxBundle.entry[index]] ?: throw InternalErrorException("failed to find original entry")
+            //val originalEntry = theMessage.entry[originalEntryIndex]
+            val originalEntry = theMessage.entry[index+1]
+            if (! isSharedResource(originalEntry.resource)) {
+                if (entry.response.location.substringBefore("/") != originalEntry.resource.javaClass.simpleName) {
+                    throw InternalErrorException("tx response order change")
+                }
+                originalEntry.link.add(Bundle.BundleLinkComponent().setUrl(entry.response.location))
+            }
+        }
+        else {
+            throw InternalErrorException("didn't get a link back")
+        }
+    }
 }
 
 fun validatePDR(theMessage : Bundle) {
@@ -173,8 +206,8 @@ fun validatePDR(theMessage : Bundle) {
 fun getUsernameFromPDRHeader (header : MessageHeader) : String {
 
     // get username from extension
-    if (header.hasExtension("https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/AccountExtension")) {
-        val usernameExtension = header.getExtensionByUrl("https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/AccountExtension")
+    if (header.hasExtension(pdrAccountExtension)) {
+        val usernameExtension = header.getExtensionByUrl(pdrAccountExtension)
         when (val usernameExtValue = usernameExtension.value) {
             is StringType -> {
                 return usernameExtValue.value
@@ -197,4 +230,88 @@ fun isGUID(theId : String?) : Boolean {
     } catch (exception: IllegalArgumentException) {
         false
     }
+}
+
+const val pdrLinkExtensionURL = "https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/PDRLinkExtension"
+const val pdrLinkListExtensionURL : String = "https://github.com/Open-Health-Manager/patient-data-receipt-ig/StructureDefinition/PDRLinkListExtension"
+
+fun addPDRLinkExtension(theResource: DomainResource, bundleId : String) {
+    val pdrListExtension = getPDRLinkListExtensionFromResource(theResource)
+    val newLinkExtension = Extension().setUrl(pdrLinkExtensionURL)
+    newLinkExtension.setValue(Reference("Bundle/$bundleId"))
+    pdrListExtension.addExtension(newLinkExtension)
+}
+
+fun getPDRLinkListExtensionFromResource(theResource: DomainResource) : Extension {
+    return theResource.meta.getExtensionByUrl(pdrLinkListExtensionURL)
+        ?: run {
+            /// Empty list
+            val newExtension = Extension().setUrl(pdrLinkListExtensionURL)
+            theResource.meta.extension.add(newExtension)
+            newExtension
+        }
+}
+
+fun findRecentPDRForPatientAndSource(patientInternalId: String, source : String, lookbackTimeSeconds : Long, messageHeaderDao: IFhirResourceDao<MessageHeader>) : MessageHeader? {
+    val lastUpdatedTimestamp = LocalDateTime.now().minusSeconds(lookbackTimeSeconds).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS"))
+    val searchParameterMap = SearchParameterMap()
+    searchParameterMap.add(MessageHeader.SP_FOCUS, ReferenceParam("Patient/$patientInternalId"))
+    searchParameterMap.add(MessageHeader.SP_SOURCE_URI, UriParam(source))
+    searchParameterMap.lastUpdated = DateRangeParam("ge$lastUpdatedTimestamp", null)
+    searchParameterMap.sort = SortSpec("_lastUpdated").setOrder(SortOrderEnum.DESC)
+    searchParameterMap.isLoadSynchronous = true /// disable cache since we're finding recent stuff
+    val searchResults = messageHeaderDao.search(searchParameterMap)
+    val messageHeaderResultList: List<IBaseResource> = searchResults.allResources
+
+    return if (messageHeaderResultList.isNotEmpty()) {
+
+        when (val resource = messageHeaderResultList[0]) {
+            is MessageHeader -> {
+                resource
+            }
+            else -> { throw InternalErrorException("internal search returned a non-MessageHeader resource")}
+        }
+    }
+    else {
+        null
+    }
+}
+
+fun generatePDRMessageHeaderObject(username: String, source: String) : MessageHeader {
+    val theHeader = MessageHeader()
+    theHeader.source = MessageHeader.MessageSourceComponent().setEndpoint(source)
+    theHeader.event = UriType(pdrEvent)
+    theHeader.addExtension(Extension(pdrAccountExtension, StringType(username)))
+
+    return theHeader
+}
+
+fun generatePDRBundleObject(messageHeader: MessageHeader) : Bundle {
+    val theMessage = Bundle()
+    theMessage.type = BundleType.MESSAGE
+    theMessage.entry.add(Bundle.BundleEntryComponent().setResource(messageHeader.copy()))
+
+    return theMessage
+}
+
+fun getBundleIdFromMessageHeader(messageHeader: MessageHeader) : String {
+    messageHeader.focus.forEach {
+        val resourceTypeAndId = it.reference.toString().split("/")
+        if (resourceTypeAndId[0] == "Bundle") {
+            return resourceTypeAndId[1]
+        }
+    }
+
+    throw InternalErrorException("no bundle id associated with MessageHeader")
+}
+
+fun getPatientIdFromMessageHeader(messageHeader: MessageHeader) : String {
+    messageHeader.focus.forEach {
+        val resourceTypeAndId = it.reference.toString().split("/")
+        if (resourceTypeAndId[0] == "Patient") {
+            return resourceTypeAndId[1]
+        }
+    }
+
+    throw InternalErrorException("no patient id associated with MessageHeader")
 }

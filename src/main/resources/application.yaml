@@ -58,11 +58,16 @@ hapi:
     #    server_address: http://hapi.fhir.org/baseR4
     #    defer_indexing_for_codesystems_of_size: 101
     #    install_transitive_ig_dependencies: true
-    #    implementationguides:
-    ###    example from registry (packages.fhir.org)
-    #      swiss:
-    #        name: swiss.mednet.fhir
-    #        version: 0.8.0
+    #implementationguides:
+    #  PACIO_Functional_Status:
+    #    name: hl7.fhir.us.pacio-fs
+    #    version: 1.0.0
+    #  PACIO_Re-Assessment_Timepoints:
+    #    name: hl7.fhir.us.pacio-rt
+    #    version: 0.1.0
+    #  USCore:
+    #    name: hl7.fhir.us.core
+    #    version: 4.1.0
     #      example not from registry
     #      ips_1_0_0:
     #        url: https://build.fhir.org/ig/HL7/fhir-ips/package.tgz
@@ -71,7 +76,7 @@ hapi:
     #    supported_resource_types:
     #      - Patient
     #      - Observation
-    #    allow_cascading_deletes: true
+    allow_cascading_deletes: true
     #    allow_contains_searches: true
     #    allow_external_references: true
     #    allow_multiple_delete: true
@@ -90,7 +95,7 @@ hapi:
     #    enforce_referential_integrity_on_delete: false
     #    enforce_referential_integrity_on_write: false
     #    etag_support_enabled: true
-    #    expunge_enabled: true
+    expunge_enabled: true
     #    daoconfig_client_id_strategy: null
     #    client_id_strategy: ALPHANUMERIC
     #    fhirpath_interceptor_enabled: false

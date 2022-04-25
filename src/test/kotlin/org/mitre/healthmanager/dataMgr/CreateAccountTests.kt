@@ -13,20 +13,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
  */
-package org.mitre.healthmanager.sphr
+package org.mitre.healthmanager.dataMgr
 
 import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
+import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.Bundle
-import org.hl7.fhir.r4.model.IdType
-import org.hl7.fhir.r4.model.MessageHeader
 import org.hl7.fhir.r4.model.Parameters
+import org.hl7.fhir.r4.model.Patient
+import org.hl7.fhir.r4.model.StringType
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.mitre.healthmanager.searchForPatientByUsername
-import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
@@ -45,9 +45,9 @@ import org.springframework.boot.web.server.LocalServerPort
         "hapi.fhir.fhir_version=r4",
     ]
 )
-class ProcessMessageNoFullUrlTests {
+class CreateAccountTests {
 
-    private val ourLog = LoggerFactory.getLogger(ProcessMessageNoFullUrlTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(CreateAccountTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER
@@ -58,49 +58,33 @@ class ProcessMessageNoFullUrlTests {
     private var port = 0
 
     @Test
-    fun testNoFullUrlBundleStorage() {
-        val methodName = "testNoFullUrlBundleStorage"
+    fun testCreateSuccess() {
+        val methodName = "testCreateSuccess"
         ourLog.info("Entering $methodName()...")
-        val testClient : IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
 
-        // Submit the bundle
-        val messageBundle: Bundle = ourCtx.newJsonParser().parseResource(
-            Bundle::class.java, stringFromResource("healthmanager/sphr/ProcessMessageTests/BundleMessage_noFullUrls.json")
-        )
-        val response : Bundle = testClient
+        // make sure patient doesn't exist
+        val results = testClient
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "createNew"))
+            .returnBundle(Bundle::class.java)
+            .execute()
+        Assertions.assertEquals(0, results?.entry?.size!!)
+
+        // trigger create
+        val inParams = Parameters()
+        inParams.addParameter().setName("username").value = StringType("createNew")
+        testClient
             .operation()
-            .processMessage()
-            .setMessageBundle<Bundle>(messageBundle)
-            .synchronous(Bundle::class.java)
+            .onServer()
+            .named("\$create-account")
+            .withParameters(inParams)
             .execute()
 
-        Assertions.assertEquals(1, response.entry.size)
-        when (val firstResource = response.entry[0].resource) {
-            is MessageHeader -> {
-                Assertions.assertEquals(firstResource.response.code, MessageHeader.ResponseType.OK)
-            }
-            else -> {
-                Assertions.fail("response doesn't have a message header")
-            }
-        }
-        val patientId = searchForPatientByUsername("a394Kutch271", testClient, 120)
+        // make sure patient does exist
+        val patientCreatedId: String? = searchForPatientByUsername("createNew", testClient, 120)
+        Assertions.assertNotNull(patientCreatedId)
 
-        // check other resources
-        val patientEverythingResult : Parameters = testClient
-            .operation()
-            .onInstance(IdType("Patient", patientId))
-            .named("\$everything")
-            .withNoParameters(Parameters::class.java)
-            .useHttpGet()
-            .execute()
-        Assertions.assertEquals(1, patientEverythingResult.parameter.size)
-        when (val everythingBundle = patientEverythingResult.parameter[0].resource) {
-            is Bundle -> {
-                Assertions.assertEquals(5, everythingBundle.entry.size)
-            }
-            else -> {
-                Assertions.fail("\$everything didn't return a bundle")
-            }
-        }
     }
 }

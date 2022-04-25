@@ -19,9 +19,14 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.starter.Application
 import ca.uhn.fhir.rest.client.api.IGenericClient
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum
-import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.r4.model.*
-import org.junit.jupiter.api.*
+import org.hl7.fhir.r4.model.Bundle
+import org.hl7.fhir.r4.model.IdType
+import org.hl7.fhir.r4.model.MessageHeader
+import org.hl7.fhir.r4.model.Parameters
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Test
+import org.mitre.healthmanager.searchForPatientByUsername
+import org.mitre.healthmanager.stringFromResource
 import org.slf4j.LoggerFactory
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.LocalServerPort
@@ -42,7 +47,7 @@ import org.springframework.boot.web.server.LocalServerPort
 )
 class ProcessHealthKitMessageTests {
 
-    private val ourLog = LoggerFactory.getLogger(ProcessMessageTests::class.java)
+    private val ourLog = LoggerFactory.getLogger(ProcessHealthKitMessageTests::class.java)
     private val ourCtx: FhirContext = FhirContext.forR4()
     init {
         ourCtx.restfulClientFactory.serverValidationMode = ServerValidationModeEnum.NEVER
@@ -78,29 +83,7 @@ class ProcessHealthKitMessageTests {
                 Assertions.fail("response doesn't have a message header")
             }
         }
-
-        Thread.sleep(1000) // give indexing a second to occur
-
-        // find the patient id
-        val patientResultsBundle : Bundle = testClient
-            .search<IBaseBundle>()
-            .forResource(Patient::class.java)
-            //.where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", "test"))
-            .returnBundle(Bundle::class.java)
-            .execute()
-
-        Assertions.assertEquals(1, patientResultsBundle.entry.size)
-        val patientId = when (val firstResource = patientResultsBundle.entry[0].resource) {
-            is Patient -> {
-                val username = firstResource.identifier.filter { id -> id.system == "urn:mitre:healthmanager:account:username" }
-                Assertions.assertEquals(1, username.size)
-                Assertions.assertEquals("test", username[0].value)
-                firstResource.idElement.idPart
-            }
-            else -> {
-                Assertions.fail("response didn't return a patient")
-            }
-        }
+        val patientId = searchForPatientByUsername("test", testClient, 120)
 
         // check other resources
         val patientEverythingResult : Parameters = testClient
