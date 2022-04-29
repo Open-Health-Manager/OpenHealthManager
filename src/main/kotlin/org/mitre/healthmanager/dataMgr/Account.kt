@@ -16,16 +16,23 @@ limitations under the License.
 
 package org.mitre.healthmanager.dataMgr
 
-import ca.uhn.fhir.context.FhirContext
-import ca.uhn.fhir.jpa.api.dao.DaoRegistry
-import ca.uhn.fhir.jpa.starter.AppProperties
 import ca.uhn.fhir.rest.client.api.IGenericClient
+import ca.uhn.fhir.rest.server.exceptions.AuthenticationException
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
+import io.jsonwebtoken.Jws
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.SignatureAlgorithm
+import io.jsonwebtoken.io.Decoders
+import io.jsonwebtoken.io.Encoders
+import io.jsonwebtoken.security.Keys
 import org.hl7.fhir.instance.model.api.IBaseBundle
-import org.hl7.fhir.instance.model.api.IIdType
 import org.hl7.fhir.r4.model.*
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent
-import org.springframework.beans.factory.annotation.Autowired
+import java.io.File
+import java.io.FileOutputStream
+import java.security.Key
+import java.security.KeyPairGenerator
+
 
 fun rebuildAccount(username : String, client: IGenericClient) {
 
@@ -242,4 +249,30 @@ fun getPDRBundleIdListForPatient(patientId: String, client: IGenericClient) : Li
 
     return bundleIdList
 
+}
+
+// function to create a JSON Web Token
+fun createJWT(username : String, client: IGenericClient): String{
+
+    /// use username to find the patient id
+    val accountPatientId = getPatientIdForUsername(username, client)
+        ?: throw InternalErrorException("Delete failed: no patient record for '$username'")
+
+    // only run this function when a new public and private key needs to be created
+    /*val encodeKey: Key = Keys.secretKeyFor(SignatureAlgorithm.HS256)
+    val secretString: String = Encoders.BASE64.encode(encodeKey.encoded)
+    println("secret string: " + secretString)
+    File("pk.txt").writeText(secretString)*/
+
+    val encodedKey = File("pk.txt").readText()
+    val key: Key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(encodedKey))
+
+    // create token with user ID associated with given username
+    val jwt: String = Jwts.builder()
+        .setSubject("Patient/" + accountPatientId)
+        //.setExpiration(expirationDate)
+        .signWith(key)
+        .compact()
+
+    return jwt
 }

@@ -16,9 +16,17 @@ limitations under the License.
 package org.mitre.healthmanager.dataMgr
 
 import ca.uhn.fhir.rest.client.api.IGenericClient
+import ca.uhn.fhir.rest.server.exceptions.AuthenticationException
+import ca.uhn.fhir.rest.server.exceptions.ForbiddenOperationException
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
+import io.jsonwebtoken.Jws
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.io.Decoders
+import io.jsonwebtoken.security.Keys
 import org.hl7.fhir.r4.model.*
 import org.mitre.healthmanager.sphr.getMessageHeader
+import java.io.File
+import java.security.Key
 import java.util.*
 
 fun isPDRMessage(header : MessageHeader) : Boolean {
@@ -33,7 +41,7 @@ fun isPDRMessage(header : MessageHeader) : Boolean {
     }
 }
 
-fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericClient) {
+fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericClient, jwt: String) {
 
     // validation: must have at least two entries (header plus content)
     // validation: username extension must be present
@@ -42,6 +50,9 @@ fun processPDR(header : MessageHeader, theMessage : Bundle, client : IGenericCli
 
     // identify internal account representation (create if needed
     val patientInternalId = ensureUsername(username, client)
+
+    // validation: token user ID must equal PDR user ID
+    tokenValidation(jwt, patientInternalId)
 
     // store
     // 1. the Bundle in its raw form
@@ -166,6 +177,20 @@ fun storeIndividualPDREntries(theMessage: Bundle, patientInternalId: String, cli
 fun validatePDR(theMessage : Bundle) {
     if (theMessage.entry.size < 2) {
         throw UnprocessableEntityException("Patient Data Receipt must have at least one additional entry beside the MessageHeader")
+    }
+}
+
+// function to validate that the user ID associated with the given token matches the user ID associated with the given PDR
+fun tokenValidation(jwt: String, patientInternalId: String) {
+    val encodedKey = File("rhahnpk.txt").readText()
+    val key: Key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(encodedKey))
+
+    val jwtClaims: Jws<*> = Jwts.parser().setSigningKey(key).parseClaimsJws(jwt)
+    var tokenId = jwtClaims.body.toString().substringAfter("/").dropLast(1)
+
+    // if they do not match, throw code 403: Forbidden error
+    if (!tokenId.equals(patientInternalId)) {
+        throw ForbiddenOperationException("The user ID associated with the given token does not match the user ID associated with the given Patient Data Receipt")
     }
 }
 

@@ -20,13 +20,22 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.dao.r4.FhirSystemDaoR4
 import ca.uhn.fhir.jpa.starter.AppProperties
 import ca.uhn.fhir.rest.api.server.RequestDetails
+import ca.uhn.fhir.rest.server.exceptions.AuthenticationException
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
+import io.jsonwebtoken.Jws
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.io.Decoders
+import io.jsonwebtoken.security.Keys
+import io.jsonwebtoken.security.SignatureException
 import org.hl7.fhir.instance.model.api.IBaseBundle
 import org.hl7.fhir.r4.model.*
 import org.springframework.beans.factory.annotation.Autowired
 import org.mitre.healthmanager.dataMgr.isPDRMessage
 import org.mitre.healthmanager.dataMgr.processPDR
+import java.io.File
+import java.security.Key
+import java.util.*
 
 
 @Autowired
@@ -45,12 +54,29 @@ open class ProcessMessage : FhirSystemDaoR4() {
         if (theMessage !is Bundle) {
             throw UnprocessableEntityException("bundle not provided to \$process-message")
         }
+
+        // Check that the given token is valid
+        val jwt = Arrays.toString(theRequestDetails.parameters.get("api_token")).drop(1).dropLast(1)
+        // A token must be given
+        if (jwt.isNullOrEmpty()) {
+            throw AuthenticationException("A token must be provided with this request.")
+        }
+
+        val encodedKey = File("pk.txt").readText()
+        val key: Key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(encodedKey))
+        try {
+            val jwtClaims: Jws<*> = Jwts.parser().setSigningKey(key).parseClaimsJws(jwt)
+            var subject = jwtClaims.body.toString()
+        } catch (e: SignatureException) {
+            throw AuthenticationException("This token cannot be asserted and should not be trusted.")
+        }
+
         // - bundle must have type 'message'
         // - bundle first entry must be a MessageHeader entry
         val theHeader = getMessageHeader(theMessage)
 
         if (isPDRMessage(theHeader) ) {
-            processPDR(theHeader, theMessage, fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase))
+            processPDR(theHeader, theMessage, fhirContext.newRestfulGenericClient(theRequestDetails.fhirServerBase), jwt)
         }
         else {
             throw UnprocessableEntityException("message event not supported")

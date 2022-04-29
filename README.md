@@ -19,6 +19,25 @@ what these standards and a patient-controlled health record can enable.
 Open Health Manager™ implements the following FHIR IGs
 - [Patient Data Receipt](https://open-health-manager.github.io/patient-data-receipt-ig/) (under development)
 
+## Token Instructions
+
+To use tokens follow the following steps:
+1. (If you already have a local file called `pk.txt`, skip this step) In `Account.kt`, uncomment lines 262-265, these lines will create a local file `pk.txt`, this is your private key. Do not upload this file to GitHub! 
+2. Run `mvn jetty:run`
+3. To log in and receive a token, send a valid username via `http://localhost:8080/fhir/$login` where the body follows the syntax below. After successfully sending this, the response should include a token. This token is created using your private key and is now needed to process a message. 
+```
+{ "resourceType": "Parameters",
+  "parameter": [ {
+    "name" : <username> } ]
+}
+```
+4. Send a Bundle as normal to `http://localhost:8080/fhir/$process-message` but now you must provide a parameter where the key is "api_token" and the value is your token from step 3. The message will only process if the token given is associated with the same user as the message. 
+
+Notes:
+* The token and private key should not change
+* If `pk.txt` is already a file locally, be sure the lines 262-265 in `Account.kt` are commented out as this will give a new private key. 
+* DO NOT upload the file `pk.txt` to GitHub, each user should have their own local version!
+
 ## Contributing to Open Health Manager™
 
 We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:

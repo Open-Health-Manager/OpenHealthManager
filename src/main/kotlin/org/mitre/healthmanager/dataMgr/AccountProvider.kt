@@ -92,6 +92,41 @@ class AccountProvider{
         theServletResponse.writer.close()
     }
 
+    @Operation(name = "\$login", manualResponse = true, manualRequest = true)
+    @Throws(
+        IOException::class
+    )
+    fun loginOperation(theServletRequest: HttpServletRequest, theServletResponse: HttpServletResponse) {
+        // Example request body ("name" means username):
+        // { "resourceType": "Parameters",
+        //   "parameter": [{ "name" : "aHealthKit" }]}
+
+        val reader = theServletRequest.reader
+        val data: String = reader.readText()
+        reader.close()
+
+        val ctx = FhirContext.forR4()
+        val parser: IParser = ctx.newJsonParser()
+        val parsedData: Parameters = parser.parseResource(Parameters::class.java, data)
+
+        val username = when (val usernameRaw = parsedData.parameter[0].name) {
+            is String -> {
+                usernameRaw
+            }
+            else -> {
+                throw UnprocessableEntityException("\$login parameter must be a string")
+            }
+        }
+
+        val serverAddress = theServletRequest.requestURL.toString().substringBefore("\$")
+        var jwt = createJWT(username, ctx.newRestfulGenericClient(serverAddress))
+
+        theServletResponse.contentType = "application/fhir+json"
+        theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))
+        theServletResponse.writer.write("Token Created: " + jwt)
+        theServletResponse.writer.close()
+    }
+
 
 }
 
