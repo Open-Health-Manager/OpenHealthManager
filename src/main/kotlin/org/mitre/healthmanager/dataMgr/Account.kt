@@ -270,7 +270,7 @@ fun getUsernameForRequest(requestDetails: RequestDetails, patientDao : IFhirReso
 
 
     when (val theResource = requestDetails.resource) {
-        is DomainResource -> {
+        is Resource -> {
 
             // meta extension
             val extensionUsername = if (theResource.meta.hasExtension(pdrAccountExtension)) {

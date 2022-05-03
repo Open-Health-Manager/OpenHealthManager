@@ -316,7 +316,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             }
             RestOperationTypeEnum.TRANSACTION -> {
                 // todo: transaction - will need to handle
-                "test"
+                handleTx(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.BATCH -> {
                 // todo: batch - will need to handle
@@ -515,5 +515,54 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             updatePDRRawBundle(storedBundle, lastBundleId, myBundleDaoR4)
         }
     }
+
+    private fun handleTx(requestDetails: RequestDetails,
+                         serveletRequestDetails: ServletRequestDetails,
+                         restOperation: RestOperationTypeEnum) {
+        val theTx : Bundle = if (requestDetails.resource is Bundle) requestDetails.resource as Bundle
+        else throw InternalErrorException("no Bundle for Transaction")
+        getUsernameForRequest(requestDetails, myPatientDaoR4)?.let { username ->
+
+            // use asserted patient id if present when creating
+            var sourcePatientId : String? = null
+            theTx.entry.forEach { bundleEntry ->
+                val theResource = bundleEntry.resource
+                if (theResource is Patient) {
+                    if (bundleEntry.request.method == Bundle.HTTPVerb.PUT) {
+                        sourcePatientId = bundleEntry.request.url.substringAfterLast("/")
+                    }
+                    else if (theResource.hasId()) {
+                        sourcePatientId = theResource.id
+                    }
+                }
+
+
+            }
+
+            val theMessage = theTx.copy()
+            theMessage.type = Bundle.BundleType.MESSAGE
+            val patientId = ensureUsername(username, myPatientDaoR4, true, sourcePatientId)
+            val source = getSourceForRequest(serveletRequestDetails)
+            val messageHeader = MessageHeader()
+            val eventURI = UriType()
+            eventURI.value = pdrEvent
+            messageHeader.event = eventURI
+            messageHeader.source = MessageHeader.MessageSourceComponent().setEndpoint(source)
+            val headerEntry = Bundle.BundleEntryComponent()
+            headerEntry.resource = messageHeader
+            headerEntry.request = Bundle.BundleEntryRequestComponent().setMethod(Bundle.HTTPVerb.POST)
+            theMessage.entry.add(0, headerEntry)
+
+            val bundleInternalId = storePDRAsRawBundle(theMessage, myBundleDaoR4)
+
+            storePDRMessageHeader(messageHeader.copy(), patientId, bundleInternalId, myMessageHeaderDaoR4)
+
+        }
+        // if no username, assume it is just shared resources and file as normal
+
+
+    }
+
+
 
 }
