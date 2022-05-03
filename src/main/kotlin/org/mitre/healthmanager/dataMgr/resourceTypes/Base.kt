@@ -103,7 +103,9 @@ val isSharedResourceMap = hashMapOf(
     "Organization" to true,
     "Practitioner" to true,
     "Location" to true,
-    "PractitionerRole" to true
+    "PractitionerRole" to true,
+    "StructureDefinition" to true,
+    "SearchParameter" to true
     )
 
 fun getPatientUsernameFromReference(theReference: Reference, patientDao : IFhirResourceDaoPatient<Patient>, resourceType: String) : String? {
