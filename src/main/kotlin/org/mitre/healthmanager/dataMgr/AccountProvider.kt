@@ -19,20 +19,12 @@ import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDaoPatient
-import ca.uhn.fhir.jpa.dao.MatchResourceUrlService
 import ca.uhn.fhir.jpa.dao.TransactionProcessor
-import ca.uhn.fhir.jpa.dao.r4.FhirResourceDaoPatientR4
-import ca.uhn.fhir.jpa.rp.r4.PatientResourceProvider
-import ca.uhn.fhir.jpa.searchparam.SearchParameterMap
-import ca.uhn.fhir.jpa.starter.JpaRestfulServer
 import ca.uhn.fhir.parser.IParser
 import ca.uhn.fhir.rest.annotation.Operation
-import ca.uhn.fhir.rest.api.server.IBundleProvider
-import ca.uhn.fhir.rest.param.TokenParam
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException
 import org.hl7.fhir.r4.model.*
 import java.io.IOException
-import javax.jms.Message
 import javax.servlet.http.HttpServletRequest
 import javax.servlet.http.HttpServletResponse
 
@@ -122,7 +114,8 @@ class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patien
         val parser: IParser = ctx.newJsonParser()
         val parsedData: Parameters = parser.parseResource(Parameters::class.java, data)
 
-        val username = when (val usernameRaw = parsedData.parameter[0].value) {
+        val usernameParam = parsedData.parameter.find { parameter -> (parameter.name == "username") } ?: throw UnprocessableEntityException("\$create-account parameter must be non-empty")
+        val username = when (val usernameRaw = usernameParam.value) {
             is StringType -> {
                 usernameRaw.value
             }
@@ -134,7 +127,18 @@ class AccountProvider(private val myPatientDaoR4: IFhirResourceDaoPatient<Patien
             throw UnprocessableEntityException("\$create-account parameter must be non-empty")
         }
 
-        createAccount(username, myPatientDaoR4)
+        val targetPatientId = parsedData.parameter.find { parameter -> (parameter.name == "targetId") }?.let { parameter ->
+            when (val rawValue = parameter.value) {
+                is StringType -> {
+                    rawValue.value
+                }
+                else -> {
+                    null
+                }
+            }
+        }
+
+        createAccount(username, myPatientDaoR4, targetPatientId)
 
         theServletResponse.contentType = "application/fhir+json"
         theServletResponse.writer.write(ctx.newJsonParser().encodeResourceToString(getOkOutcome()))

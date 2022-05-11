@@ -87,4 +87,38 @@ class CreateAccountTests {
         Assertions.assertNotNull(patientCreatedId)
 
     }
+
+    @Test
+    fun testCreateWithSpecificId() {
+        val methodName = "testCreateSuccess"
+        ourLog.info("Entering $methodName()...")
+        val testClient: IGenericClient = ourCtx.newRestfulGenericClient("http://localhost:$port/fhir/")
+        val testUsername = "createNewWithId"
+        val testPatientId = "test-createNewWithId"
+
+        // make sure patient doesn't exist
+        val results = testClient
+            .search<IBaseBundle>()
+            .forResource(Patient::class.java)
+            .where(Patient.IDENTIFIER.exactly().systemAndIdentifier("urn:mitre:healthmanager:account:username", testUsername))
+            .returnBundle(Bundle::class.java)
+            .execute()
+        Assertions.assertEquals(0, results?.entry?.size!!)
+
+        // trigger create
+        val inParams = Parameters()
+        inParams.addParameter().setName("username").value = StringType(testUsername)
+        inParams.addParameter().setName("targetId").value = StringType(testPatientId)
+        testClient
+            .operation()
+            .onServer()
+            .named("\$create-account")
+            .withParameters(inParams)
+            .execute()
+
+        // make sure patient does exist with the specified Id
+        val patientCreatedId: String? = searchForPatientByUsername(testUsername, testClient, 120)
+        Assertions.assertEquals(testPatientId, patientCreatedId)
+
+    }
 }

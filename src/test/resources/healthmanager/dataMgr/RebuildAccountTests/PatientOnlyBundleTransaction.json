@@ -3,7 +3,6 @@
   "type": "transaction",
   "entry": [
     {
-      "fullUrl": "urn:uuid:71a8b156-760b-df6b-859e-eefc7932a526",
       "resource": {
         "resourceType": "Patient",
         "identifier": [

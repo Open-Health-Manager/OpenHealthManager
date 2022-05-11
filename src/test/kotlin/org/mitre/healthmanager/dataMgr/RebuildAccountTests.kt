@@ -62,6 +62,8 @@ class RebuildAccountTests {
 
         // file test data
         // has username identifier and first / last name
+        // NOTE: now that transactions get filed as PDRs, this test makes less sense
+        // But so does the rebuild operation in general
         val transactionBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
             Bundle::class.java, stringFromResource("healthmanager/dataMgr/RebuildAccountTests/PatientOnlyBundleTransaction.json")
         )
@@ -88,9 +90,11 @@ class RebuildAccountTests {
             .withParameters(inParams)
             .execute()
 
-        // verify updates - no first and last name anymore
+        // verify updates - first and last names still there
         val patResourceRebuilt = testClient.read().resource(Patient::class.java).withId(patId).encodedJson().execute()
-        Assertions.assertEquals(0, patResourceRebuilt.name.size)
+        Assertions.assertEquals(1, patResourceRebuilt.name.size)
+        Assertions.assertEquals("Account", patResourceRebuilt.nameFirstRep.family)
+        Assertions.assertEquals("New", patResourceRebuilt.nameFirstRep.givenAsSingleString)
     }
 
     @Test
@@ -104,7 +108,7 @@ class RebuildAccountTests {
         val messageBundle: Bundle = ourCtx.newJsonParser().parseResource<Bundle>(
             Bundle::class.java, stringFromResource("healthmanager/dataMgr/RebuildAccountTests/SinglePDRRebuild.json")
         )
-        val response : Bundle = testClient
+        testClient
             .operation()
             .processMessage()
             .setMessageBundle<Bundle>(messageBundle)
