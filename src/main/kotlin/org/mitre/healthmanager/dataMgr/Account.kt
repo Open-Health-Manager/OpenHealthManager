@@ -84,13 +84,13 @@ fun deleteAccount(username : String, patientDao : IFhirResourceDaoPatient<Patien
     }
 }
 
-fun createAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>) {
+fun createAccount(username : String, patientDao : IFhirResourceDaoPatient<Patient>, targetPatientIdForCreate : String? = null) {
 
     getPatientIdForUsername(username, patientDao)?.let {
         // already exists
         throw InternalErrorException("Create failed: account already exists for '$username'")
     } ?: run {
-        createAccountSkeletonPatientInstance(username, patientDao)
+        createAccountSkeletonPatientInstance(username, patientDao, targetPatientIdForCreate)
     }
 
 }
@@ -105,7 +105,7 @@ fun getEverythingForAccount(username: String, patientId: String?, patientDao : I
         }
     }
 
-    val requestDetails = ca.uhn.fhir.rest.server.servlet.ServletRequestDetails()
+    val requestDetails = ServletRequestDetails()
     requestDetails.servletRequest = originalRequest
     val everythingFromDao = patientDao.patientInstanceEverything(originalRequest, IdDt("Patient/$updateId"), null, null, null, null, null, null, null, requestDetails)
 
@@ -198,10 +198,13 @@ fun getAccountSkeletonPatientInstance(username: String) : Patient {
 
 fun createAccountSkeletonPatientInstance(username: String, patientDao : IFhirResourceDaoPatient<Patient>, targetPatientIdForCreate : String? = null) : String {
     val skeleton = getAccountSkeletonPatientInstance(username)
-    //if (targetPatientIdForCreate != null) {
+    val outcome = if (targetPatientIdForCreate != null) {
         skeleton.id = targetPatientIdForCreate
-    //}
-    val outcome = patientDao.create(skeleton)
+        patientDao.update(skeleton) /// use update so that the provided id is used
+    }
+    else {
+        patientDao.create(skeleton) /// use create to get a system-generated id
+    }
     return outcome.resource.idElement.idPart
 }
 
@@ -316,7 +319,7 @@ fun getSourceForRequest(requestDetails: ServletRequestDetails) : String {
 
 
     when (val theResource = requestDetails.resource) {
-        is DomainResource -> {
+        is Resource -> {
             // meta extension
             if (theResource.meta.hasSource()) {
                 return theResource.meta.source

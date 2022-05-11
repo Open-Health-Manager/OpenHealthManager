@@ -111,7 +111,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // 5. Update the Bundle with the links for the patient and the messageheader
                 newPDRBundle.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$newMessageHeaderId"))
                 newPDRBundle.entry[1].link.add(Bundle.BundleLinkComponent().setUrl(createOutcome.resource.idElement.toString()))
-                updatePDRRawBundle(newPDRBundle, newPDRBundleId, myBundleDaoR4) // links added
+                updatePDRRawBundle(newPDRBundle, myBundleDaoR4) // links added
 
                 // 6. Update the Response with the patient creation details
                 val response = requestDetails.response.streamResponseAsResource(
@@ -315,11 +315,10 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 addUpdateOrCreateToPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.TRANSACTION -> {
-                // todo: transaction - will need to handle
-                handleTx(requestDetails, serveletRequestDetails, restOperation)
+                fileTransactionAsPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.BATCH -> {
-                // todo: batch - will need to handle
+                fileTransactionAsPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
                 // todo: operation - will need to handle in some cases
@@ -331,7 +330,9 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                //throw UnprocessableEntityException("Direct Deletes not supported")
+                if (requestDetails.getHeader("OHMDelete") == null) {
+                    throw UnprocessableEntityException("Direct Deletes not supported")
+                }
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
@@ -362,7 +363,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
     @Hook(Pointcut.SERVER_OUTGOING_RESPONSE)
     fun reactToResponse(requestDetails: RequestDetails,
                         serveletRequestDetails: ServletRequestDetails,
-                        responseResource: IBaseResource,
+                        responseResource: IBaseResource?,
                         theRequest: HttpServletRequest,
                         theResponse: HttpServletResponse): Boolean {
 
@@ -372,16 +373,16 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
 
         when (requestDetails.restOperationType) {
             RestOperationTypeEnum.CREATE -> {
-                updatePDRBundleWithStoredLink(requestDetails, responseResource)
+                updatePDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.UPDATE -> {
-                updatePDRBundleWithStoredLink(requestDetails, responseResource)
+                updatePDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.TRANSACTION -> {
-                // todo: transaction - will need to handle
+                updateTransactionPDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.BATCH -> {
-                // todo: batch - will need to handle
+                updateTransactionPDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
                 // todo: operation - will need to handle in some cases
@@ -393,7 +394,9 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                //throw UnprocessableEntityException("Direct Deletes not supported")
+                if (requestDetails.getHeader("OHMDelete") == null) {
+                    throw UnprocessableEntityException("Direct Deletes not supported")
+                }
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
@@ -452,40 +455,30 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                     val newPDRBundleId = storePDRAsRawBundle(newPDRBundle, myBundleDaoR4)
                     val newMessageHeaderId = storePDRMessageHeader(newMessageHeader, patientId, newPDRBundleId, myMessageHeaderDaoR4)
                     newPDRBundle.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$newMessageHeaderId"))
-                    updatePDRRawBundle(newPDRBundle, newPDRBundleId, myBundleDaoR4) // links added
+                    updatePDRRawBundle(newPDRBundle, myBundleDaoR4) // links added
                     newMessageHeader
                 }
 
             // add resource to PDR Bundle
             val pdrBundleId = getBundleIdFromMessageHeader(pdrMessageHeader)
             val pdrBundle = myBundleDaoR4.read(IdDt(pdrBundleId))
-            pdrBundle.entry.add(Bundle.BundleEntryComponent().setResource(theResource.copy()))
-            updatePDRRawBundle(pdrBundle, pdrBundleId, myBundleDaoR4)
+            val newEntry = Bundle.BundleEntryComponent().setResource(theResource.copy())
+            pdrBundle.entry.add(newEntry)
+            updatePDRRawBundle(pdrBundle, myBundleDaoR4)
 
             // update MessageHeader lastUpdated timestamp
             // todo
 
-            // make sure that we are starting with the latest pdr list
-            // this is managed by the system and should not be provided
-            if (theResource.meta.hasExtension(pdrLinkListExtensionURL)) {
-                theResource.meta.removeExtension(pdrLinkListExtensionURL)
-            }
+            // set request details for the pdr link logic (didn't want it in the PDR itself)
+            // see note above about presence of id and relationship to PUT vs POST
             if (theResource.hasId()) {
-                val resourceType = theResource.resourceType.toString()
-                val resourceInternalId = theResource.idElement.idPart
-                val resourceDao = myDaoRegistry.getResourceDao(resourceType)
-                    ?: throw InternalErrorException("failed to find the resource Dao for resource type '$resourceType'")
-                val existingInstance = try {
-                    resourceDao.read(IdType(resourceType, resourceInternalId))
-                } catch (exception : Exception) {
-                    null
-                }
-                if ((existingInstance is Resource) && (existingInstance.meta.hasExtension(pdrLinkListExtensionURL))) {
-                    theResource.meta.extension.add(existingInstance.meta.getExtensionByUrl(pdrLinkListExtensionURL))
-                }
+                newEntry.request.method = Bundle.HTTPVerb.PUT
+                newEntry.request.url = theResource.resourceType.toString() + "/" + theResource.idElement.idPart
             }
-            // add bundle id and account username to the created resource
-            addPDRLinkExtension(theResource, pdrBundleId)
+            else {
+                newEntry.request.method = Bundle.HTTPVerb.POST
+            }
+            addPDRLinkListExtension(theResource, newEntry, myDaoRegistry, pdrBundleId)
             addPatientAccountExtension(theResource, username)
 
             // ready to file as normal - will update bundle link afterwards
@@ -496,38 +489,48 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                                               responseResource: IBaseResource) {
         val theResource : DomainResource = if (responseResource is DomainResource) responseResource else throw InternalErrorException("expected domain resource")
         if ( !isSharedResource(theResource) ) {
-            val pdrBundleLinkExtension = getPDRLinkListExtensionFromResource(theResource)
-            if (pdrBundleLinkExtension.extension.size == 0) {
-                throw UnprocessableEntityException("resource stored without a bundle link")
-            }
             val link = theResource.idElement.toString()
-            val lastBundleId = when (val extValue = pdrBundleLinkExtension.extension.last().value) {
-                is Reference -> {
-                    extValue.reference
-                }
-                else -> {
-                    throw InternalErrorException("bad pdr link extension")
-                }
-
-            }
-            val storedBundle = myBundleDaoR4.read(IdDt(lastBundleId))
+            val storedBundle = getStoredPDRBundleForResource(theResource)
             storedBundle.entry.last().link.add(Bundle.BundleLinkComponent().setUrl(link))
-            updatePDRRawBundle(storedBundle, lastBundleId, myBundleDaoR4)
+            updatePDRRawBundle(storedBundle, myBundleDaoR4)
         }
     }
 
-    private fun handleTx(requestDetails: RequestDetails,
-                         serveletRequestDetails: ServletRequestDetails,
-                         restOperation: RestOperationTypeEnum) {
+    private fun getStoredPDRBundleForResource(theResource: DomainResource) : Bundle {
+        val pdrBundleLinkExtension = getPDRLinkListExtensionFromResource(theResource)
+        if (pdrBundleLinkExtension.extension.size == 0) {
+            throw UnprocessableEntityException("resource stored without a bundle link")
+        }
+        val lastBundleId = when (val extValue = pdrBundleLinkExtension.extension.last().value) {
+            is Reference -> {
+                extValue.reference
+            }
+            else -> {
+                throw InternalErrorException("bad pdr link extension")
+            }
+
+        }
+        return myBundleDaoR4.read(IdDt(lastBundleId))
+    }
+
+    private fun fileTransactionAsPDR(requestDetails: RequestDetails,
+                                     serveletRequestDetails: ServletRequestDetails,
+                                     restOperation: RestOperationTypeEnum) {
         val theTx : Bundle = if (requestDetails.resource is Bundle) requestDetails.resource as Bundle
         else throw InternalErrorException("no Bundle for Transaction")
         getUsernameForRequest(requestDetails, myPatientDaoR4)?.let { username ->
 
             // use asserted patient id if present when creating
             var sourcePatientId : String? = null
-            theTx.entry.forEach { bundleEntry ->
+            var patientEntryIndex : Int? = null
+            theTx.entry.forEachIndexed { entryIndex, bundleEntry ->
+                if (bundleEntry.request.method == Bundle.HTTPVerb.DELETE) {
+                    throw UnprocessableEntityException("Deletes not supported in transactions")
+                }
+
                 val theResource = bundleEntry.resource
                 if (theResource is Patient) {
+                    patientEntryIndex = entryIndex
                     if (bundleEntry.request.method == Bundle.HTTPVerb.PUT) {
                         sourcePatientId = bundleEntry.request.url.substringAfterLast("/")
                     }
@@ -535,13 +538,23 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                         sourcePatientId = theResource.id
                     }
                 }
-
-
             }
 
             val theMessage = theTx.copy()
             theMessage.type = Bundle.BundleType.MESSAGE
             val patientId = ensureUsername(username, myPatientDaoR4, true, sourcePatientId)
+            when (val checkedPatientEntryIndex = patientEntryIndex) {
+                is Int -> {
+                    // update the filed bundle to make sure the patient entry updates
+                    // the existing account patient instance
+                    // redirecting to a PUT of the target id gives HAPI FHIR
+                    // enough information to update internal references
+                    val patientEntry = theTx.entry[checkedPatientEntryIndex]
+                    patientEntry.request.url = "Patient/$patientId"
+                    patientEntry.request.method = Bundle.HTTPVerb.PUT
+                }
+
+            }
             val source = getSourceForRequest(serveletRequestDetails)
             val messageHeader = MessageHeader()
             val eventURI = UriType()
@@ -554,13 +567,58 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             theMessage.entry.add(0, headerEntry)
 
             val bundleInternalId = storePDRAsRawBundle(theMessage, myBundleDaoR4)
+            for (entry in theTx.entry) {
+                when (val theResource = entry.resource) {
+                    is DomainResource -> {
+                        addPDRLinkListExtension(theResource, entry, myDaoRegistry, bundleInternalId)
+                        addPatientAccountExtension(theResource, username)
+                    }
+                }
+            }
 
             storePDRMessageHeader(messageHeader.copy(), patientId, bundleInternalId, myMessageHeaderDaoR4)
 
         }
         // if no username, assume it is just shared resources and file as normal
 
+    }
 
+    private fun updateTransactionPDRBundleWithStoredLink(requestDetails: RequestDetails,
+                                                         responseResource: IBaseResource) {
+        if (responseResource is Bundle) {
+
+            /// first need to find the first non-shared resource stored
+            /// will use to get the PDR bundle id
+            var patientSpecificEntry : Bundle.BundleEntryComponent? = null
+            for (entry in responseResource.entry) {
+                val resourceType = entry.response.location.substringBefore("/")
+                if (!isSharedResource(resourceType)) {
+                    patientSpecificEntry = entry
+                    break
+                }
+            }
+
+            when (val checkedPatientSpecificEntry = patientSpecificEntry) {
+                is Bundle.BundleEntryComponent -> {
+                    /// load this resource to find the id of the transaction bundle
+                    val locationDetails = checkedPatientSpecificEntry.response.location.split("/")
+                    when (val theResource = loadResourceWithTypeAndId(myDaoRegistry, locationDetails[0], locationDetails[1])) {
+                        is DomainResource -> {
+                            val storedBundle = getStoredPDRBundleForResource(theResource)
+                            addLinksToStoredPDRBundleBasedOnTxOutcome(responseResource, storedBundle)
+                            updatePDRRawBundle(storedBundle, myBundleDaoR4)
+                        }
+                        else -> {
+                            throw InternalErrorException("stored resource not found ${locationDetails[0]}/${locationDetails[1]}")
+                        }
+                    }
+                }
+            } // otherwise all shared resources, so no links to add
+
+        }
+        else {
+            throw InternalErrorException("transaction did not return a bundle")
+        }
     }
 
 

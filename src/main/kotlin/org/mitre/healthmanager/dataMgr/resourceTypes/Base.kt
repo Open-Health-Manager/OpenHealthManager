@@ -98,6 +98,11 @@ fun isSharedResource(theResource: Resource) : Boolean {
     }
 }
 
+fun isSharedResource(resourceType: String) : Boolean {
+    return isSharedResourceMap.containsKey(resourceType)
+}
+
+
 val isSharedResourceMap = hashMapOf(
     "Questionnaire" to true,
     "Organization" to true,
