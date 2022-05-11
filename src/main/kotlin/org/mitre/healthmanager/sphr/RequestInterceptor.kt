@@ -315,11 +315,10 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 addUpdateOrCreateToPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.TRANSACTION -> {
-                // todo: transaction - will need to handle
                 fileTransactionAsPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.BATCH -> {
-                // todo: batch - will need to handle
+                fileTransactionAsPDR(requestDetails, serveletRequestDetails, restOperation)
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
                 // todo: operation - will need to handle in some cases
@@ -331,7 +330,9 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                //throw UnprocessableEntityException("Direct Deletes not supported")
+                if (requestDetails.getHeader("OHMDelete") == null) {
+                    throw UnprocessableEntityException("Direct Deletes not supported")
+                }
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
@@ -381,7 +382,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 updateTransactionPDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.BATCH -> {
-                // todo: batch - will need to handle
+                updateTransactionPDRBundleWithStoredLink(requestDetails, responseResource ?: throw InternalErrorException("no returned resource"))
             }
             RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE -> {
                 // todo: operation - will need to handle in some cases
@@ -393,7 +394,9 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                 // todo: operation - will need to handle in some cases
             }
             RestOperationTypeEnum.DELETE -> {
-                //throw UnprocessableEntityException("Direct Deletes not supported")
+                if (requestDetails.getHeader("OHMDelete") == null) {
+                    throw UnprocessableEntityException("Direct Deletes not supported")
+                }
             }
             RestOperationTypeEnum.PATCH -> {
                 throw UnprocessableEntityException("Direct Patches not supported")
@@ -521,6 +524,10 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             var sourcePatientId : String? = null
             var patientEntryIndex : Int? = null
             theTx.entry.forEachIndexed { entryIndex, bundleEntry ->
+                if (bundleEntry.request.method == Bundle.HTTPVerb.DELETE) {
+                    throw UnprocessableEntityException("Deletes not supported in transactions")
+                }
+
                 val theResource = bundleEntry.resource
                 if (theResource is Patient) {
                     patientEntryIndex = entryIndex
