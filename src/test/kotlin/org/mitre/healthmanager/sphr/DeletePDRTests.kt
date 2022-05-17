@@ -79,8 +79,7 @@ class DeletePDRTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // file PDR bundle
@@ -184,8 +183,8 @@ class DeletePDRTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // Observation v1
@@ -328,8 +327,8 @@ class DeletePDRTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // Observation v1
@@ -512,8 +511,8 @@ class DeletePDRTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // file PDR bundle
@@ -606,7 +605,7 @@ class DeletePDRTests {
         }
         Assertions.assertNotNull(outcome)
 
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // validate Patient details

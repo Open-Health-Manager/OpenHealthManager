@@ -82,14 +82,10 @@ class DirectCreateTests {
         }
         Assertions.assertNotNull(outcome)
         Assertions.assertTrue(outcome!!.created)
+        Assertions.assertTrue(outcome.resource is Patient)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome.id.idPart
-        val patientInstance = testClient
-            .read()
-            .resource(Patient::class.java)
-            .withId(patientId)
-            .execute()
+        val patientId = outcome.resource.idElement.idPart
+        val patientInstance = (outcome.resource as Patient)
 
         Assertions.assertTrue(patientInstance.meta.hasExtension(pdrAccountExtension))
         Assertions.assertEquals(testUsername, patientInstance.meta.getExtensionByUrl(pdrAccountExtension).value.toString())
@@ -171,8 +167,8 @@ class DirectCreateTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
     }
@@ -273,7 +269,7 @@ class DirectCreateTests {
         }
         Assertions.assertNotNull(outcome)
 
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals("test-patientId", patientId)
 
         val updatePatient = Patient()
@@ -291,7 +287,7 @@ class DirectCreateTests {
         }
         Assertions.assertNotNull(outcomeUpdate)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
+
         val patientInstance = testClient
             .read()
             .resource(Patient::class.java)
