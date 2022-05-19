@@ -595,6 +595,10 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
             theMessage.entry.add(0, headerEntry)
 
             val bundleInternalId = storePDRAsRawBundle(theMessage, myBundleDaoR4)
+            val messageHeaderId = storePDRMessageHeader(messageHeader.copy(), patientId, bundleInternalId, myMessageHeaderDaoR4)
+            theMessage.entryFirstRep.link.add(Bundle.BundleLinkComponent().setUrl("MessageHeader/$messageHeaderId"))
+            updatePDRRawBundle(theMessage, myBundleDaoR4) // link for MessageHeader added
+
             for (entry in theTx.entry) {
                 when (val theResource = entry.resource) {
                     is DomainResource -> {
@@ -603,8 +607,6 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
                     }
                 }
             }
-
-            storePDRMessageHeader(messageHeader.copy(), patientId, bundleInternalId, myMessageHeaderDaoR4)
 
         }
         // if no username, assume it is just shared resources and file as normal
