@@ -82,8 +82,7 @@ class PDRLinkTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // Observation v1
@@ -212,8 +211,8 @@ class PDRLinkTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // file PDR bundle
@@ -320,8 +319,8 @@ class PDRLinkTests {
         }
         Assertions.assertNotNull(outcome)
 
-        /// have to do a read to get the resource back currently due to a bug I can't quite fix
-        val patientId = outcome!!.id.idPart
+
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // file PDR bundle
@@ -413,7 +412,7 @@ class PDRLinkTests {
         }
         Assertions.assertNotNull(outcome)
 
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         // file PDR bundle
@@ -478,7 +477,7 @@ class PDRLinkTests {
         }
         Assertions.assertNotNull(outcome)
 
-        val patientId = outcome!!.id.idPart
+        val patientId = outcome!!.resource.idElement.idPart
         Assertions.assertEquals(testPatientId, patientId)
 
         val updatePatient = Patient()

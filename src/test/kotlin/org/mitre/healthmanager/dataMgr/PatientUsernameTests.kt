@@ -146,7 +146,7 @@ class PatientUsernameTests {
             null
         }
         Assertions.assertNotNull(outcome)
-        val newId = outcome!!.id.idPart
+        val newId = outcome!!.resource.idElement.idPart
 
         // update
         val noUsernamePatient = Patient()
@@ -197,7 +197,7 @@ class PatientUsernameTests {
             null
         }
         Assertions.assertNotNull(outcome)
-        val newId = outcome!!.id.idPart
+        val newId = outcome!!.resource.idElement.idPart
 
         // update
         val noUsernamePatient = Patient()
