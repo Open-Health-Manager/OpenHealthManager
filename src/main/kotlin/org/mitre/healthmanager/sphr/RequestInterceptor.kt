@@ -584,11 +584,7 @@ class RequestInterceptor(private val myPatientDaoR4: IFhirResourceDaoPatient<Pat
 
             }
             val source = getSourceForRequest(serveletRequestDetails)
-            val messageHeader = MessageHeader()
-            val eventURI = UriType()
-            eventURI.value = pdrEvent
-            messageHeader.event = eventURI
-            messageHeader.source = MessageHeader.MessageSourceComponent().setEndpoint(source)
+            val messageHeader = generatePDRMessageHeaderObject(username, source)
             val headerEntry = Bundle.BundleEntryComponent()
             headerEntry.resource = messageHeader
             headerEntry.request = Bundle.BundleEntryRequestComponent().setMethod(Bundle.HTTPVerb.POST)
